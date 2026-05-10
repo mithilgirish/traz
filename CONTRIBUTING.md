@@ -30,7 +30,7 @@ To work on `traz`, you'll need the Rust toolchain installed.
 
 1.  Clone your fork:
     ```bash
-    git clone https://github.com/YOUR_USERNAME/traz.git
+    git clone https://github.com/mithilgirish/traz.git
     cd traz
     ```
 2.  Build the project:

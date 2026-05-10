@@ -131,7 +131,10 @@ $ traz recent --tool claude-code
 
 ## How It Works
 
+See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for a deep dive into the system design.
+
 ```
+┌─────────────────────────────────────┐
 ┌─────────────────────────────────────┐
 │           Your AI Tools             │
 │  Claude Code · Cursor · Gemini CLI  │
