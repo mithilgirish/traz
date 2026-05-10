@@ -1,16 +1,23 @@
-[package]
-name = "traz"
+[workspace]
+resolver = "2"
+members = [
+    "crates/traz-core",
+    "crates/traz-db",
+    "crates/traz-cli",
+    "crates/traz-api",
+    "crates/traz-mcp",
+    "crates/traz-integrations",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "A shared engineering context layer for AI coding tools"
 authors = ["Mithil Girish"]
 license = "MIT"
 repository = "https://github.com/mithilgirish/traz"
-keywords = ["ai", "developer-tools", "mcp", "context", "cli"]
-categories = ["command-line-utilities", "development-tools"]
-readme = "README.md"
+description = "A shared engineering context layer for AI coding tools"
 
-[dependencies]
+[workspace.dependencies]
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive"] }
@@ -24,6 +31,14 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 axum = "0.7"
 tower-http = { version = "0.5", features = ["trace", "cors"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Internal crates
+traz-core = { path = "crates/traz-core" }
+traz-db = { path = "crates/traz-db" }
+traz-api = { path = "crates/traz-api" }
+traz-mcp = { path = "crates/traz-mcp" }
+traz-integrations = { path = "crates/traz-integrations" }
 
 [profile.release]
 opt-level = 3

@@ -1,36 +1,19 @@
-mod api;
 mod cli;
-mod db;
 mod display;
-mod git;
-mod mcp;
-mod models;
 
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
-use db::Db;
-use display::{print_empty, print_events, print_events_json, print_header, print_success};
-use models::Event;
-use std::path::PathBuf;
+use display::{
+    print_empty, print_events, print_events_json, print_header, print_info, print_success,
+};
 use std::sync::Arc;
 use tokio::net::TcpListener;
-
-/// Resolve the database path.
-/// Uses `$TRAZ_DB` env var if set, otherwise `~/.local/share/traz/traz.db`.
-fn get_db_path() -> PathBuf {
-    if let Ok(custom) = std::env::var("TRAZ_DB") {
-        return PathBuf::from(custom);
-    }
-    let mut path = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("traz");
-    path.push("traz.db");
-    path
-}
+use traz_core::{Event, TrazConfig};
+use traz_db::Db;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Only init tracing for the serve/mcp commands to keep CLI output clean
     let cli = Cli::parse();
 
     let needs_tracing = matches!(&cli.command, Commands::Serve { .. } | Commands::Mcp);
@@ -38,12 +21,28 @@ async fn main() -> Result<()> {
         tracing_subscriber::fmt::init();
     }
 
-    let db_path = get_db_path();
-    let db = Db::new(&db_path)?;
+    let config = TrazConfig::resolve();
+    let db = Db::open(&config.db_path)?;
 
     match cli.command {
-        // ── Read commands ───────────────────────────────────────────
+        // ── Project setup ───────────────────────────────────────────
+        Commands::Init { hook } => {
+            print_success(&format!(
+                "traz initialized. Database at: {}",
+                config.db_path.display()
+            ));
 
+            if hook {
+                match traz_integrations::git::install_post_commit_hook() {
+                    Ok(_) => print_success("Git post-commit hook installed."),
+                    Err(e) => print_empty(&format!("Failed to install hook: {}", e)),
+                }
+            }
+
+            print_info("Run `traz setup <tool>` to configure integrations.");
+        }
+
+        // ── Read commands ───────────────────────────────────────────
         Commands::Recent { limit, json } => {
             let events = db.get_recent_events(limit)?;
             if events.is_empty() {
@@ -57,8 +56,8 @@ async fn main() -> Result<()> {
             }
         }
 
-        Commands::Timeline { json } => {
-            let events = db.get_timeline(1000)?;
+        Commands::Timeline { limit, json } => {
+            let events = db.get_timeline(limit)?;
             if events.is_empty() {
                 print_empty("Timeline is empty.");
             } else if json {
@@ -70,8 +69,13 @@ async fn main() -> Result<()> {
             }
         }
 
-        Commands::Search { query, json } => {
-            let events = db.search_events(&query, 100)?;
+        Commands::Search {
+            query,
+            limit,
+            tool: _,
+            json,
+        } => {
+            let events = db.search_events(&query, limit)?;
             if events.is_empty() {
                 print_empty(&format!("No events matching \"{}\".", query));
             } else if json {
@@ -84,13 +88,14 @@ async fn main() -> Result<()> {
         }
 
         // ── Write commands ──────────────────────────────────────────
-
         Commands::Add {
             tool,
             event_type,
             title,
             summary,
             files,
+            tags,
+            session,
         } => {
             let files_vec = files.map(|s| {
                 s.split(',')
@@ -99,7 +104,21 @@ async fn main() -> Result<()> {
                     .collect::<Vec<String>>()
             });
 
-            let event = Event::new(tool, event_type, title, summary, files_vec, None);
+            let tags_vec = tags.map(|s| {
+                s.split(',')
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .collect::<Vec<String>>()
+            });
+
+            let mut event = Event::new(tool, event_type, title, summary, files_vec, None);
+            if let Some(t) = tags_vec {
+                event = event.with_tags(t);
+            }
+            if let Some(s) = session {
+                event = event.with_session(s);
+            }
+
             let id = db.insert_event(&event)?;
             print_success(&format!("Event #{} added.", id));
         }
@@ -113,20 +132,19 @@ async fn main() -> Result<()> {
         }
 
         Commands::Capture => {
-            let event = git::capture_latest_commit()?;
+            let event = traz_integrations::git::capture_latest_commit()?;
             let id = db.insert_event(&event)?;
             print_success(&format!("Captured git commit as event #{}.", id));
         }
 
         // ── Info commands ───────────────────────────────────────────
-
         Commands::Stats => {
             let count = db.count_events()?;
             let by_tool = db.get_stats()?;
 
             print_header("traz stats");
             println!("  Total events: {}", count);
-            println!("  Database:     {}", db.path().display());
+            println!("  Database:     {}", config.db_path.display());
             if !by_tool.is_empty() {
                 println!();
                 println!("  Events by tool:");
@@ -143,11 +161,15 @@ async fn main() -> Result<()> {
             println!("{}", json);
         }
 
-        // ── Server commands ─────────────────────────────────────────
+        Commands::Setup { tool } => {
+            let instructions = traz_integrations::adapters::setup_instructions(&tool)?;
+            println!("\n{}\n", instructions);
+        }
 
+        // ── Server commands ─────────────────────────────────────────
         Commands::Serve { port } => {
             let db_arc = Arc::new(db);
-            let app = api::create_router(db_arc);
+            let app = traz_api::create_router(db_arc);
 
             let addr = format!("127.0.0.1:{}", port);
             let listener = TcpListener::bind(&addr).await?;
@@ -159,7 +181,7 @@ async fn main() -> Result<()> {
 
         Commands::Mcp => {
             let db_arc = Arc::new(db);
-            mcp::run_mcp_server(db_arc).await?;
+            traz_mcp::run_mcp_server(db_arc).await?;
         }
     }
 

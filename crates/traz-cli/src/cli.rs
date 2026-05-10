@@ -14,7 +14,8 @@ use clap::{Parser, Subcommand};
                   traz recent --limit 5\n  \
                   traz search \"memory leak\"\n  \
                   traz capture\n  \
-                  traz serve --port 3000\n  \
+                  traz serve --port 4000\n  \
+                  traz setup claude\n  \
                   traz mcp"
 )]
 pub struct Cli {
@@ -24,20 +25,31 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Initialize traz for this project (install git hooks, etc.)
+    Init {
+        /// Also install a git post-commit hook
+        #[arg(long, default_value_t = false)]
+        hook: bool,
+    },
+
     /// Show recent engineering events (newest first)
     Recent {
         /// Maximum number of events to display
         #[arg(short, long, default_value_t = 10)]
         limit: u32,
 
-        /// Output as raw JSON instead of formatted text
+        /// Output as raw JSON
         #[arg(long, default_value_t = false)]
         json: bool,
     },
 
     /// Show the full chronological timeline (oldest first)
     Timeline {
-        /// Output as raw JSON instead of formatted text
+        /// Maximum number of events
+        #[arg(short, long, default_value_t = 200)]
+        limit: u32,
+
+        /// Output as raw JSON
         #[arg(long, default_value_t = false)]
         json: bool,
     },
@@ -47,7 +59,15 @@ pub enum Commands {
         /// Search query
         query: String,
 
-        /// Output as raw JSON instead of formatted text
+        /// Maximum results
+        #[arg(short, long, default_value_t = 50)]
+        limit: u32,
+
+        /// Filter by tool
+        #[arg(long)]
+        tool: Option<String>,
+
+        /// Output as raw JSON
         #[arg(long, default_value_t = false)]
         json: bool,
     },
@@ -73,6 +93,14 @@ pub enum Commands {
         /// Comma-separated list of affected files
         #[arg(long)]
         files: Option<String>,
+
+        /// Comma-separated tags
+        #[arg(long)]
+        tags: Option<String>,
+
+        /// Session identifier to group related events
+        #[arg(long)]
+        session: Option<String>,
     },
 
     /// Delete an event by its ID
@@ -99,4 +127,10 @@ pub enum Commands {
 
     /// Export all events as a JSON array to stdout
     Export,
+
+    /// Show integration setup instructions for a specific tool
+    Setup {
+        /// Tool name: claude, cursor, gemini, git
+        tool: String,
+    },
 }

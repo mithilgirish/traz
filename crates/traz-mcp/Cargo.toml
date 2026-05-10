@@ -1,0 +1,14 @@
+[package]
+name = "traz-mcp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "MCP (Model Context Protocol) stdio server for traz"
+
+[dependencies]
+traz-core = { workspace = true }
+traz-db = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }

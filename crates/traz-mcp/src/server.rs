@@ -1,19 +1,14 @@
-use crate::db::Db;
-use crate::models::Event;
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
+use traz_core::Event;
+use traz_db::Db;
 
-/// Run the MCP (Model Context Protocol) stdio server.
-///
-/// This implements the MCP JSON-RPC protocol over stdin/stdout so that
-/// any MCP-compatible AI tool (Claude Code, Cursor, Gemini CLI, etc.)
-/// can connect to traz and read/write engineering context natively.
 /// Maximum line length accepted from stdin (1 MB).
-/// Prevents memory exhaustion from a malformed or malicious client.
 const MAX_LINE_LEN: usize = 1_024 * 1_024;
 
+/// Run the MCP (Model Context Protocol) stdio server.
 pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -49,16 +44,12 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
             }
         };
 
-        // Handle notifications (no id) — just acknowledge silently
         let id = match req.get("id") {
             Some(id) => id.clone(),
             None => continue,
         };
 
-        let method = req
-            .get("method")
-            .and_then(|m| m.as_str())
-            .unwrap_or("");
+        let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
         let response = match method {
             "initialize" => json!({
@@ -66,9 +57,7 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
                 "id": id,
                 "result": {
                     "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "tools": {}
-                    },
+                    "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "traz",
                         "version": env!("CARGO_PKG_VERSION")
@@ -81,27 +70,18 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
             "tools/list" => json!({
                 "jsonrpc": "2.0",
                 "id": id,
-                "result": {
-                    "tools": build_tool_definitions()
-                }
+                "result": { "tools": build_tool_definitions() }
             }),
 
             "tools/call" => {
                 let result = handle_tool_call(&db, &req);
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": result
-                })
+                json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
 
             _ => json!({
                 "jsonrpc": "2.0",
                 "id": id,
-                "error": {
-                    "code": -32601,
-                    "message": format!("Method not found: {}", method)
-                }
+                "error": { "code": -32601, "message": format!("Method not found: {}", method) }
             }),
         };
 
@@ -112,8 +92,6 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
     Ok(())
 }
 
-// ── Tool definitions ────────────────────────────────────────────────
-
 fn build_tool_definitions() -> Value {
     json!([
         {
@@ -122,37 +100,31 @@ fn build_tool_definitions() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "limit": {
-                        "type": "number",
-                        "description": "Number of events to retrieve (default 10, max 100)"
-                    }
+                    "limit": { "type": "number", "description": "Number of events to retrieve (default 10, max 100)" }
                 }
             }
         },
         {
             "name": "traz_search",
-            "description": "Search the traz engineering timeline for events matching a keyword. Searches across titles, summaries, tools, event types, and file names.",
+            "description": "Search the traz engineering timeline for events matching a keyword. Searches across titles, summaries, tools, types, and filenames.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search term to look for"
-                    }
+                    "query": { "type": "string", "description": "The search term" }
                 },
                 "required": ["query"]
             }
         },
         {
             "name": "traz_add",
-            "description": "Add a new engineering event to the traz timeline. Use this to record bug fixes, refactors, architectural decisions, or any engineering context worth preserving for future sessions.",
+            "description": "Add a new engineering event to the traz timeline. Use this to record bug fixes, refactors, decisions, or any context worth preserving.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "tool":    { "type": "string", "description": "Name of your AI tool (e.g. claude, cursor, gemini)" },
+                    "tool":    { "type": "string", "description": "Name of your AI tool" },
                     "type":    { "type": "string", "description": "Event category: bug_fix, refactor, feature, decision, debug, test, deploy, revert" },
-                    "title":   { "type": "string", "description": "A short, descriptive title" },
-                    "summary": { "type": "string", "description": "Longer explanation of reasoning, context, and decisions made" },
+                    "title":   { "type": "string", "description": "Short, descriptive title" },
+                    "summary": { "type": "string", "description": "Longer explanation of reasoning and context" },
                     "files":   { "type": "array", "items": { "type": "string" }, "description": "List of files involved" }
                 },
                 "required": ["tool", "type", "title"]
@@ -160,24 +132,16 @@ fn build_tool_definitions() -> Value {
         },
         {
             "name": "traz_timeline",
-            "description": "Get the full chronological timeline of engineering events, oldest first. Useful for understanding the evolution of a project.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
+            "description": "Get the full chronological timeline of engineering events, oldest first.",
+            "inputSchema": { "type": "object", "properties": {} }
         }
     ])
 }
 
-// ── Tool dispatch ───────────────────────────────────────────────────
-
 fn handle_tool_call(db: &Db, req: &Value) -> Value {
     let default_params = json!({});
     let params = req.get("params").unwrap_or(&default_params);
-    let name = params
-        .get("name")
-        .and_then(|n| n.as_str())
-        .unwrap_or("");
+    let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let default_args = json!({});
     let args = params.get("arguments").unwrap_or(&default_args);
 
@@ -188,7 +152,6 @@ fn handle_tool_call(db: &Db, req: &Value) -> Value {
                 .and_then(|l| l.as_u64())
                 .unwrap_or(10)
                 .min(100) as u32;
-
             match db.get_recent_events(limit) {
                 Ok(events) => tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default()),
                 Err(e) => tool_err(&e.to_string()),
@@ -199,7 +162,6 @@ fn handle_tool_call(db: &Db, req: &Value) -> Value {
             if query.is_empty() {
                 return tool_err("Missing required argument: query");
             }
-            // Truncate query to prevent abuse
             let query = &query[..query.len().min(500)];
             match db.search_events(query, 100) {
                 Ok(events) if events.is_empty() => {
@@ -232,7 +194,7 @@ fn handle_tool_call(db: &Db, req: &Value) -> Value {
             let files = args.get("files").and_then(|f| f.as_array()).map(|arr| {
                 arr.iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect::<Vec<String>>()
+                    .collect()
             });
 
             let event = Event::new(tool, event_type, title, summary, files, None);
