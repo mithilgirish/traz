@@ -10,13 +10,28 @@ use std::sync::Arc;
 /// This implements the MCP JSON-RPC protocol over stdin/stdout so that
 /// any MCP-compatible AI tool (Claude Code, Cursor, Gemini CLI, etc.)
 /// can connect to traz and read/write engineering context natively.
+/// Maximum line length accepted from stdin (1 MB).
+/// Prevents memory exhaustion from a malformed or malicious client.
+const MAX_LINE_LEN: usize = 1_024 * 1_024;
+
 pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+    let reader = io::BufReader::new(stdin.lock());
 
-    for line in stdin.lock().lines() {
+    for line in reader.lines() {
         let line = line?;
         if line.trim().is_empty() {
+            continue;
+        }
+        if line.len() > MAX_LINE_LEN {
+            let err_resp = json!({
+                "jsonrpc": "2.0",
+                "id": null,
+                "error": { "code": -32600, "message": "Request too large" }
+            });
+            writeln!(stdout, "{}", serde_json::to_string(&err_resp)?)?;
+            stdout.flush()?;
             continue;
         }
 
@@ -184,7 +199,9 @@ fn handle_tool_call(db: &Db, req: &Value) -> Value {
             if query.is_empty() {
                 return tool_err("Missing required argument: query");
             }
-            match db.search_events(query) {
+            // Truncate query to prevent abuse
+            let query = &query[..query.len().min(500)];
+            match db.search_events(query, 100) {
                 Ok(events) if events.is_empty() => {
                     tool_ok(&format!("No events found matching \"{}\"", query))
                 }
@@ -224,7 +241,7 @@ fn handle_tool_call(db: &Db, req: &Value) -> Value {
                 Err(e) => tool_err(&e.to_string()),
             }
         }
-        "traz_timeline" => match db.get_timeline() {
+        "traz_timeline" => match db.get_timeline(500) {
             Ok(events) => tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default()),
             Err(e) => tool_err(&e.to_string()),
         },

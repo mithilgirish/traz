@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Timeline { json } => {
-            let events = db.get_timeline()?;
+            let events = db.get_timeline(1000)?;
             if events.is_empty() {
                 print_empty("Timeline is empty.");
             } else if json {
@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Search { query, json } => {
-            let events = db.search_events(&query)?;
+            let events = db.search_events(&query, 100)?;
             if events.is_empty() {
                 print_empty(&format!("No events matching \"{}\".", query));
             } else if json {
@@ -138,7 +138,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Export => {
-            let events = db.get_timeline()?;
+            let events = db.get_timeline(u32::MAX)?;
             let json = serde_json::to_string_pretty(&events)?;
             println!("{}", json);
         }

@@ -5,6 +5,18 @@ use rusqlite::{params, Connection, Result as SqliteResult};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// Maximum allowed length for text fields (tool, type, title).
+const MAX_FIELD_LEN: usize = 500;
+
+/// Maximum allowed length for summary text.
+const MAX_SUMMARY_LEN: usize = 10_000;
+
+/// Maximum number of file entries per event.
+const MAX_FILES_COUNT: usize = 100;
+
+/// Hard upper limit for query results to prevent memory exhaustion.
+const MAX_RESULTS: u32 = 1000;
+
 /// Database abstraction over a local SQLite store.
 ///
 /// All event persistence flows through this struct. The inner connection
@@ -50,7 +62,7 @@ impl Db {
     // ── Migrations ──────────────────────────────────────────────────
 
     fn migrate(&self) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn();
 
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS events (
@@ -87,14 +99,35 @@ impl Db {
     // ── Write ───────────────────────────────────────────────────────
 
     /// Insert an event and return its auto-generated ID.
+    ///
+    /// Validates all field lengths before writing.
     pub fn insert_event(&self, event: &Event) -> Result<i64> {
+        // Input validation
+        Self::validate_field("tool", &event.tool, MAX_FIELD_LEN)?;
+        Self::validate_field("event_type", &event.event_type, MAX_FIELD_LEN)?;
+        Self::validate_field("title", &event.title, MAX_FIELD_LEN)?;
+
+        if let Some(ref summary) = event.summary {
+            Self::validate_field("summary", summary, MAX_SUMMARY_LEN)?;
+        }
+        if let Some(ref files) = event.files {
+            anyhow::ensure!(
+                files.len() <= MAX_FILES_COUNT,
+                "Too many files (max {})",
+                MAX_FILES_COUNT
+            );
+            for f in files {
+                Self::validate_field("file path", f, MAX_FIELD_LEN)?;
+            }
+        }
+
         let files_json = event
             .files
             .as_ref()
             .map(|f| serde_json::to_string(f))
             .transpose()?;
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO events (tool, type, title, summary, files, timestamp)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -113,7 +146,7 @@ impl Db {
 
     /// Delete an event by its ID. Returns true if a row was deleted.
     pub fn delete_event(&self, id: i64) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn();
         let affected = conn.execute("DELETE FROM events WHERE id = ?1", params![id])?;
         Ok(affected > 0)
     }
@@ -122,7 +155,8 @@ impl Db {
 
     /// Return the `limit` most recent events, newest first.
     pub fn get_recent_events(&self, limit: u32) -> Result<Vec<Event>> {
-        let conn = self.conn.lock().unwrap();
+        let limit = limit.min(MAX_RESULTS);
+        let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT id, tool, type, title, summary, files, timestamp, created_at
              FROM events
@@ -134,21 +168,28 @@ impl Db {
     }
 
     /// Full-text-ish search across title, summary, type, tool, and files.
-    pub fn search_events(&self, query: &str) -> Result<Vec<Event>> {
-        let like = format!("%{}%", query);
-        let conn = self.conn.lock().unwrap();
+    ///
+    /// Escapes LIKE wildcards in the user query so `%` and `_` are treated
+    /// as literal characters.
+    pub fn search_events(&self, query: &str, limit: u32) -> Result<Vec<Event>> {
+        let limit = limit.min(MAX_RESULTS);
+        // Escape LIKE meta-characters to prevent wildcard injection
+        let escaped = query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let like = format!("%{}%", escaped);
+        let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT id, tool, type, title, summary, files, timestamp, created_at
              FROM events
-             WHERE title   LIKE ?1
-                OR summary LIKE ?1
-                OR type    LIKE ?1
-                OR tool    LIKE ?1
-                OR files   LIKE ?1
-             ORDER BY timestamp DESC",
+             WHERE title   LIKE ?1 ESCAPE '\\'
+                OR summary LIKE ?1 ESCAPE '\\'
+                OR type    LIKE ?1 ESCAPE '\\'
+                OR tool    LIKE ?1 ESCAPE '\\'
+                OR files   LIKE ?1 ESCAPE '\\'
+             ORDER BY timestamp DESC
+             LIMIT ?2",
         )?;
 
-        Self::collect_events(stmt.query_map(params![like], |row| Self::row_to_event(row))?)
+        Self::collect_events(stmt.query_map(params![like, limit], |row| Self::row_to_event(row))?)
     }
 
     /// Filtered query supporting optional tool / event_type predicates.
@@ -158,6 +199,7 @@ impl Db {
         tool: Option<String>,
         event_type: Option<String>,
     ) -> Result<Vec<Event>> {
+        let limit = limit.min(MAX_RESULTS);
         let mut sql = String::from(
             "SELECT id, tool, type, title, summary, files, timestamp, created_at FROM events",
         );
@@ -177,7 +219,7 @@ impl Db {
 
         sql.push_str(" ORDER BY timestamp DESC LIMIT ?");
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn();
         let mut stmt = conn.prepare(&sql)?;
 
         let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
@@ -192,21 +234,23 @@ impl Db {
         Self::collect_events(stmt.query_map(&*params, |row| Self::row_to_event(row))?)
     }
 
-    /// Return every event ordered chronologically (oldest first).
-    pub fn get_timeline(&self) -> Result<Vec<Event>> {
-        let conn = self.conn.lock().unwrap();
+    /// Return events ordered chronologically (oldest first), capped at MAX_RESULTS.
+    pub fn get_timeline(&self, limit: u32) -> Result<Vec<Event>> {
+        let limit = limit.min(MAX_RESULTS);
+        let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT id, tool, type, title, summary, files, timestamp, created_at
              FROM events
-             ORDER BY timestamp ASC",
+             ORDER BY timestamp ASC
+             LIMIT ?1",
         )?;
 
-        Self::collect_events(stmt.query_map([], |row| Self::row_to_event(row))?)
+        Self::collect_events(stmt.query_map(params![limit], |row| Self::row_to_event(row))?)
     }
 
     /// Return aggregate counts grouped by tool.
     pub fn get_stats(&self) -> Result<Vec<(String, i64)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT tool, COUNT(*) as cnt FROM events GROUP BY tool ORDER BY cnt DESC",
         )?;
@@ -224,12 +268,36 @@ impl Db {
 
     /// Return the total number of events in the database.
     pub fn count_events(&self) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn();
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
         Ok(count)
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
+
+    /// Acquire the connection lock, recovering from a poisoned mutex
+    /// instead of panicking the server.
+    fn lock_conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        match self.conn.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("Recovered from poisoned mutex lock");
+                poisoned.into_inner()
+            }
+        }
+    }
+
+    /// Validate that a string field is non-empty and within length limits.
+    fn validate_field(name: &str, value: &str, max_len: usize) -> Result<()> {
+        anyhow::ensure!(!value.trim().is_empty(), "{} must not be empty", name);
+        anyhow::ensure!(
+            value.len() <= max_len,
+            "{} exceeds maximum length of {} bytes",
+            name,
+            max_len
+        );
+        Ok(())
+    }
 
     fn collect_events(
         iter: impl Iterator<Item = SqliteResult<Event>>,
