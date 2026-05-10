@@ -1,0 +1,24 @@
+# Build artifacts
+/target
+
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
+
+# Environment / secrets (safety net)
+.env
+.env.*
+*.pem
+*.key
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
