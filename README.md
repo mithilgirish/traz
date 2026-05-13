@@ -135,7 +135,6 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for a deep dive into the system de
 
 ```
 ┌─────────────────────────────────────┐
-┌─────────────────────────────────────┐
 │           Your AI Tools             │
 │  Claude Code · Cursor · Gemini CLI  │
 │  Warp · Aider · Ollama · Agents     │
@@ -192,8 +191,8 @@ Point your AI tool at `localhost:7474` and it gains access to your full engineer
 - [x] CLI commands — `recent`, `search`, `timeline`, `log`
 - [x] Search and history system
 - [x] MCP server
-- [ ] Automatic git integration
-- [ ] Tool adapters
+- [x] Automatic git integration
+- [x] Tool adapters
 
 **Future**
 - [ ] Semantic search with local embeddings

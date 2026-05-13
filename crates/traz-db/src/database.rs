@@ -73,6 +73,7 @@ impl Db {
                 metadata    TEXT,
                 tags        TEXT,
                 session_id  TEXT,
+                diff        TEXT,
                 timestamp   TEXT    NOT NULL,
                 created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );",
@@ -83,6 +84,7 @@ impl Db {
         Self::add_column_if_missing(&conn, "metadata");
         Self::add_column_if_missing(&conn, "tags");
         Self::add_column_if_missing(&conn, "session_id");
+        Self::add_column_if_missing(&conn, "diff");
 
         // Step 3: Create indexes (safe now that all columns exist)
         conn.execute_batch(

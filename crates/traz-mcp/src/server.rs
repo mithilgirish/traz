@@ -125,7 +125,8 @@ fn build_tool_definitions() -> Value {
                     "type":    { "type": "string", "description": "Event category: bug_fix, refactor, feature, decision, debug, test, deploy, revert" },
                     "title":   { "type": "string", "description": "Short, descriptive title" },
                     "summary": { "type": "string", "description": "Longer explanation of reasoning and context" },
-                    "files":   { "type": "array", "items": { "type": "string" }, "description": "List of files involved" }
+                    "files":   { "type": "array", "items": { "type": "string" }, "description": "List of files involved" },
+                    "diff":    { "type": "string", "description": "Unified diff or patch content for this change" }
                 },
                 "required": ["tool", "type", "title"]
             }
@@ -163,7 +164,7 @@ fn handle_tool_call(db: &Db, req: &Value) -> Value {
                 return tool_err("Missing required argument: query");
             }
             let query = &query[..query.len().min(500)];
-            match db.search_events(query, 100) {
+            match db.search_events(query, None, 100) {
                 Ok(events) if events.is_empty() => {
                     tool_ok(&format!("No events found matching \"{}\"", query))
                 }
@@ -197,7 +198,12 @@ fn handle_tool_call(db: &Db, req: &Value) -> Value {
                     .collect()
             });
 
-            let event = Event::new(tool, event_type, title, summary, files, None);
+            let diff = args.get("diff").and_then(|d| d.as_str()).map(|s| s.to_string());
+
+            let mut event = Event::new(tool, event_type, title, summary, files, None);
+            if let Some(d) = diff {
+                event = event.with_diff(d);
+            }
             match db.insert_event(&event) {
                 Ok(id) => tool_ok(&format!("Event created with ID {}", id)),
                 Err(e) => tool_err(&e.to_string()),

@@ -43,8 +43,12 @@ async fn main() -> Result<()> {
         }
 
         // ── Read commands ───────────────────────────────────────────
-        Commands::Recent { limit, json } => {
-            let events = db.get_recent_events(limit)?;
+        Commands::Recent { limit, tool, event_type, json } => {
+            let events = if tool.is_some() || event_type.is_some() {
+                db.get_filtered_events(limit, tool, event_type, None, None)?
+            } else {
+                db.get_recent_events(limit)?
+            };
             if events.is_empty() {
                 print_empty("No events yet. Add one with `traz add`.");
             } else if json {
@@ -72,10 +76,10 @@ async fn main() -> Result<()> {
         Commands::Search {
             query,
             limit,
-            tool: _,
+            tool,
             json,
         } => {
-            let events = db.search_events(&query, limit)?;
+            let events = db.search_events(&query, tool.as_deref(), limit)?;
             if events.is_empty() {
                 print_empty(&format!("No events matching \"{}\".", query));
             } else if json {
@@ -96,6 +100,7 @@ async fn main() -> Result<()> {
             files,
             tags,
             session,
+            diff,
         } => {
             let files_vec = files.map(|s| {
                 s.split(',')
@@ -118,9 +123,25 @@ async fn main() -> Result<()> {
             if let Some(s) = session {
                 event = event.with_session(s);
             }
+            if diff {
+                if let Ok(Some(d)) = traz_integrations::git::get_uncommitted_diff() {
+                    event = event.with_diff(d);
+                }
+            }
 
             let id = db.insert_event(&event)?;
             print_success(&format!("Event #{} added.", id));
+        }
+
+        Commands::Log { message, event_type, tool, diff } => {
+            let mut event = Event::new(tool, event_type, message, None, None, None);
+            if diff {
+                if let Ok(Some(d)) = traz_integrations::git::get_uncommitted_diff() {
+                    event = event.with_diff(d);
+                }
+            }
+            let id = db.insert_event(&event)?;
+            print_success(&format!("Logged event #{} shorthand.", id));
         }
 
         Commands::Delete { id } => {
@@ -128,6 +149,34 @@ async fn main() -> Result<()> {
                 print_success(&format!("Event #{} deleted.", id));
             } else {
                 print_empty(&format!("Event #{} not found.", id));
+            }
+        }
+
+        Commands::Diff { id } => {
+            match db.get_event(id)? {
+                Some(event) => {
+                    if let Some(diff) = event.diff {
+                        use std::io::IsTerminal;
+                        let use_color = std::io::stdout().is_terminal();
+                        
+                        for line in diff.lines() {
+                            if use_color && line.starts_with('+') && !line.starts_with("+++") {
+                                println!("\x1b[32m{}\x1b[0m", line); // green
+                            } else if use_color && line.starts_with('-') && !line.starts_with("---") {
+                                println!("\x1b[31m{}\x1b[0m", line); // red
+                            } else if use_color && line.starts_with("@@") {
+                                println!("\x1b[36m{}\x1b[0m", line); // cyan
+                            } else {
+                                println!("{}", line);
+                            }
+                        }
+                    } else {
+                        print_empty(&format!("Event #{} has no associated code diff.", id));
+                    }
+                }
+                None => {
+                    print_empty(&format!("Event #{} not found.", id));
+                }
             }
         }
 

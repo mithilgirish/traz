@@ -54,8 +54,8 @@ impl Db {
 
         let conn = self.lock_conn();
         conn.execute(
-            "INSERT INTO events (uuid, tool, type, title, summary, files, metadata, tags, session_id, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO events (uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 event.uuid,
                 event.tool,
@@ -66,6 +66,7 @@ impl Db {
                 metadata_json,
                 tags_json,
                 event.session_id,
+                event.diff,
                 event.timestamp.to_rfc3339(),
             ],
         )?;
@@ -80,6 +81,21 @@ impl Db {
         Ok(affected > 0)
     }
 
+    /// Get a single event by its ID.
+    pub fn get_event(&self, id: i64) -> Result<Option<Event>> {
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
+             FROM events WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![id], row_to_event)?;
+        if let Some(row) = rows.next() {
+            Ok(Some(row?))
+        } else {
+            Ok(None)
+        }
+    }
+
     // ── Read ────────────────────────────────────────────────────────
 
     /// Return the `limit` most recent events, newest first.
@@ -87,14 +103,14 @@ impl Db {
         let limit = limit.min(MAX_RESULTS);
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, timestamp, created_at
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events ORDER BY timestamp DESC LIMIT ?1",
         )?;
         collect_events(stmt.query_map(params![limit], row_to_event)?)
     }
 
-    /// Full-text-ish search with LIKE wildcard escaping.
-    pub fn search_events(&self, query: &str, limit: u32) -> Result<Vec<Event>> {
+    /// Full-text-ish search with LIKE wildcard escaping, optional tool filter.
+    pub fn search_events(&self, query: &str, tool: Option<&str>, limit: u32) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
         let escaped = query
             .replace('\\', "\\\\")
@@ -102,19 +118,61 @@ impl Db {
             .replace('_', "\\_");
         let like = format!("%{}%", escaped);
 
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, timestamp, created_at
+        let mut sql = String::from(
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events
-             WHERE title   LIKE ?1 ESCAPE '\\'
+             WHERE (title   LIKE ?1 ESCAPE '\\'
                 OR summary LIKE ?1 ESCAPE '\\'
                 OR type    LIKE ?1 ESCAPE '\\'
                 OR tool    LIKE ?1 ESCAPE '\\'
                 OR files   LIKE ?1 ESCAPE '\\'
                 OR tags    LIKE ?1 ESCAPE '\\'
-             ORDER BY timestamp DESC LIMIT ?2",
-        )?;
-        collect_events(stmt.query_map(params![like, limit], row_to_event)?)
+             )"
+        );
+
+        if tool.is_some() {
+            sql.push_str(" AND tool = ?2");
+        }
+        sql.push_str(" ORDER BY timestamp DESC LIMIT ?3");
+
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(&sql)?;
+        
+        if let Some(tool_val) = tool {
+            collect_events(stmt.query_map(params![like, tool_val, limit], row_to_event)?)
+        } else {
+            // Pass NULL or dummy for ?2 since it is not used in the SQL, 
+            // or better: use different prepare statements or positional binding.
+            // In modern rusqlite, we can pass parameter references.
+            // Let's rewrite with dyn ToSql for flexibility, same as get_filtered_events.
+            drop(stmt);
+            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+            params.push(Box::new(like));
+            let mut sql = String::from(
+                "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
+                 FROM events
+                 WHERE (title   LIKE ?1 ESCAPE '\\'
+                    OR summary LIKE ?1 ESCAPE '\\'
+                    OR type    LIKE ?1 ESCAPE '\\'
+                    OR tool    LIKE ?1 ESCAPE '\\'
+                    OR files   LIKE ?1 ESCAPE '\\'
+                    OR tags    LIKE ?1 ESCAPE '\\'
+                 )"
+            );
+            if let Some(t) = tool {
+                sql.push_str(" AND tool = ?2");
+                params.push(Box::new(t.to_string()));
+                sql.push_str(" ORDER BY timestamp DESC LIMIT ?3");
+                params.push(Box::new(limit));
+            } else {
+                sql.push_str(" ORDER BY timestamp DESC LIMIT ?2");
+                params.push(Box::new(limit));
+            }
+            let mut stmt = conn.prepare(&sql)?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|p| p.as_ref()).collect();
+            collect_events(stmt.query_map(&*param_refs, row_to_event)?)
+        }
     }
 
     /// Filtered query with optional tool, type, and date predicates.
@@ -128,7 +186,7 @@ impl Db {
     ) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
         let mut sql = String::from(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, timestamp, created_at FROM events",
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at FROM events",
         );
         let mut conditions: Vec<String> = Vec::new();
 
@@ -179,7 +237,7 @@ impl Db {
         let limit = limit.min(MAX_RESULTS);
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, timestamp, created_at
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events ORDER BY timestamp ASC LIMIT ?1",
         )?;
         collect_events(stmt.query_map(params![limit], row_to_event)?)
@@ -243,13 +301,14 @@ fn row_to_event(row: &rusqlite::Row) -> SqliteResult<Event> {
     let tags: Option<Vec<String>> = tags_str.and_then(|s| serde_json::from_str(&s).ok());
 
     let session_id: Option<String> = row.get(9)?;
+    let diff: Option<String> = row.get(10)?;
 
-    let timestamp_str: String = row.get(10)?;
+    let timestamp_str: String = row.get(11)?;
     let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .unwrap_or_else(|_| chrono::Utc::now());
 
-    let created_at_str: Option<String> = row.get(11)?;
+    let created_at_str: Option<String> = row.get(12)?;
     let created_at = created_at_str.and_then(|s| {
         chrono::DateTime::parse_from_rfc3339(&s)
             .map(|dt| dt.with_timezone(&chrono::Utc))
@@ -267,6 +326,7 @@ fn row_to_event(row: &rusqlite::Row) -> SqliteResult<Event> {
         metadata,
         tags,
         session_id,
+        diff,
         timestamp,
         created_at,
     })
@@ -289,6 +349,7 @@ impl Db {
                 metadata    TEXT,
                 tags        TEXT,
                 session_id  TEXT,
+                diff        TEXT,
                 timestamp   TEXT    NOT NULL,
                 created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );",
@@ -346,7 +407,7 @@ mod tests {
         db.insert_event(&e1).unwrap();
         db.insert_event(&e2).unwrap();
 
-        let results = db.search_events("Find", 10).unwrap();
+        let results = db.search_events("Find", None, 10).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Find me");
     }

@@ -32,6 +32,7 @@ struct EventPayload {
     metadata: Option<serde_json::Value>,
     tags: Option<Vec<String>>,
     session_id: Option<String>,
+    diff: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -118,6 +119,9 @@ async fn create_event(
     if let Some(session_id) = payload.session_id {
         event = event.with_session(session_id);
     }
+    if let Some(diff) = payload.diff {
+        event = event.with_diff(diff);
+    }
 
     match state.db.insert_event(&event) {
         Ok(id) => (
@@ -177,7 +181,7 @@ async fn search_events(
     }
 
     let limit = filter.limit.unwrap_or(50).min(500);
-    match state.db.search_events(&query, limit) {
+    match state.db.search_events(&query, filter.tool.as_deref(), limit) {
         Ok(events) => (StatusCode::OK, Json(events)).into_response(),
         Err(e) => {
             tracing::error!("Search failed: {}", e);

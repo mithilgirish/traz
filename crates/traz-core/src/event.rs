@@ -47,6 +47,10 @@ pub struct Event {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
 
+    /// Code diff / patch associated with the event for version control.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+
     /// When the event occurred.
     pub timestamp: DateTime<Utc>,
 
@@ -76,6 +80,7 @@ impl Event {
             metadata: None,
             tags: None,
             session_id: None,
+            diff: None,
             timestamp: timestamp.unwrap_or_else(Utc::now),
             created_at: None,
         }
@@ -96,6 +101,12 @@ impl Event {
     /// Builder-style setter for session ID.
     pub fn with_session(mut self, session_id: String) -> Self {
         self.session_id = Some(session_id);
+        self
+    }
+
+    /// Builder-style setter for code diff.
+    pub fn with_diff(mut self, diff: String) -> Self {
+        self.diff = Some(diff);
         self
     }
 }

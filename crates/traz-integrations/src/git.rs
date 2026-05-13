@@ -58,7 +58,17 @@ pub fn capture_latest_commit() -> Result<Event> {
 
     let files_opt = if files.is_empty() { None } else { Some(files) };
 
-    let event = Event::new(
+    // Get actual diff patch content
+    let patch_output = Command::new("git")
+        .args(["show", "--pretty=format:", "-U3", "HEAD"])
+        .output()
+        .ok();
+    let diff_patch = patch_output
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let mut event = Event::new(
         "git".to_string(),
         "commit".to_string(),
         title,
@@ -72,7 +82,40 @@ pub fn capture_latest_commit() -> Result<Event> {
         "author": author,
     }));
 
+    if let Some(patch) = diff_patch {
+        event = event.with_diff(patch);
+    }
+
     Ok(event)
+}
+
+/// Get uncommitted changes (staged and unstaged) in the repository as a diff patch.
+pub fn get_uncommitted_diff() -> Result<Option<String>> {
+    let output = Command::new("git")
+        .args(["diff", "HEAD", "--no-color"])
+        .output()
+        .context("Failed to run git diff")?;
+
+    if !output.status.success() {
+        // Head might not exist yet if completely empty repo
+        let init_output = Command::new("git")
+            .args(["diff", "--no-color"])
+            .output()
+            .context("Failed to run git diff fallback")?;
+        if init_output.status.success() {
+            let s = String::from_utf8_lossy(&init_output.stdout).trim().to_string();
+            if s.is_empty() { return Ok(None); }
+            return Ok(Some(s));
+        }
+        return Ok(None);
+    }
+
+    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if s.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(s))
+    }
 }
 
 /// Get the name of the current git branch.

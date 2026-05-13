@@ -38,6 +38,14 @@ pub enum Commands {
         #[arg(short, long, default_value_t = 10)]
         limit: u32,
 
+        /// Filter by tool
+        #[arg(long)]
+        tool: Option<String>,
+
+        /// Filter by event type
+        #[arg(long = "type")]
+        event_type: Option<String>,
+
         /// Output as raw JSON
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -101,11 +109,39 @@ pub enum Commands {
         /// Session identifier to group related events
         #[arg(long)]
         session: Option<String>,
+
+        /// Capture uncommitted git diff automatically
+        #[arg(long, default_value_t = false)]
+        diff: bool,
+    },
+
+    /// Quickly log a manual event shorthand
+    Log {
+        /// Short descriptive title or message
+        message: String,
+
+        /// Event category (defaults to decision)
+        #[arg(long = "type", default_value = "decision")]
+        event_type: String,
+
+        /// Source tool (defaults to cli)
+        #[arg(long, default_value = "cli")]
+        tool: String,
+
+        /// Capture uncommitted git diff automatically
+        #[arg(long, default_value_t = false)]
+        diff: bool,
     },
 
     /// Delete an event by its ID
     Delete {
         /// Event ID to delete
+        id: i64,
+    },
+
+    /// Show the full code diff for a specific event
+    Diff {
+        /// Event ID to view the diff for
         id: i64,
     },
 
