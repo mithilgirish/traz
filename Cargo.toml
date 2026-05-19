@@ -21,6 +21,7 @@ description = "A shared engineering context layer for AI coding tools"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive"] }
+ctrlc = "3.4"
 dirs = "5.0"
 rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 serde = { version = "1.0", features = ["derive"] }

@@ -1,0 +1,277 @@
+#[cfg(test)]
+mod tests {
+    use crate::database::Db;
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use traz_core::Event;
+    use anyhow::Result;
+
+    impl Db {
+        fn migrate_for_test(&self) -> Result<()> {
+            let conn = self.conn.lock().unwrap();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS events (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uuid        TEXT,
+                    tool        TEXT    NOT NULL,
+                    type        TEXT    NOT NULL,
+                    title       TEXT    NOT NULL,
+                    summary     TEXT,
+                    files       TEXT,
+                    metadata    TEXT,
+                    tags        TEXT,
+                    session_id  TEXT,
+                    diff        TEXT,
+                    timestamp   TEXT    NOT NULL,
+                    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                );",
+            )?;
+            Ok(())
+        }
+    }
+
+    fn test_db() -> Db {
+        let conn = Connection::open_in_memory().unwrap();
+        let db = Db {
+            conn: Mutex::new(conn),
+            path: PathBuf::from(":memory:"),
+        };
+        db.migrate_for_test().unwrap();
+        db
+    }
+
+    fn sample_event(tool: &str, event_type: &str, title: &str) -> Event {
+        Event::new(
+            tool.to_string(),
+            event_type.to_string(),
+            title.to_string(),
+            Some(format!("Summary for {}", title)),
+            Some(vec!["src/main.rs".to_string()]),
+            None,
+        )
+    }
+
+    #[test]
+    fn test_insert_and_retrieve() {
+        let db = test_db();
+        let event = sample_event("cursor", "feature", "Added login page");
+        let id = db.insert_event(&event).unwrap();
+        assert!(id > 0);
+
+        let retrieved = db.get_event(id).unwrap().unwrap();
+        assert_eq!(retrieved.title, "Added login page");
+        assert_eq!(retrieved.tool, "cursor");
+        assert_eq!(retrieved.event_type, "feature");
+        assert!(retrieved.summary.is_some());
+        assert!(retrieved.files.is_some());
+    }
+
+    #[test]
+    fn test_delete_event() {
+        let db = test_db();
+        let event = sample_event("aider", "bug_fix", "Fix null pointer");
+        let id = db.insert_event(&event).unwrap();
+
+        assert!(db.delete_event(id).unwrap());
+        assert!(!db.delete_event(id).unwrap()); // already deleted
+        assert!(db.get_event(id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_search() {
+        let db = test_db();
+        let e1 = Event::new("t1".into(), "f1".into(), "Find me".into(), None, None, None);
+        let e2 = Event::new("t2".into(), "f2".into(), "Hide me".into(), None, None, None);
+
+        db.insert_event(&e1).unwrap();
+        db.insert_event(&e2).unwrap();
+
+        let results = db.search_events("Find", None, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Find me");
+    }
+
+    #[test]
+    fn test_search_with_tool_filter() {
+        let db = test_db();
+        db.insert_event(&sample_event("cursor", "feature", "Auth module")).unwrap();
+        db.insert_event(&sample_event("claude", "feature", "Auth refactor")).unwrap();
+
+        let results = db.search_events("Auth", Some("cursor"), 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].tool, "cursor");
+    }
+
+    #[test]
+    fn test_timeline_order() {
+        let db = test_db();
+        db.insert_event(&sample_event("t1", "f", "First")).unwrap();
+        db.insert_event(&sample_event("t2", "f", "Second")).unwrap();
+        db.insert_event(&sample_event("t3", "f", "Third")).unwrap();
+
+        let timeline = db.get_timeline(10).unwrap();
+        assert_eq!(timeline.len(), 3);
+        // Timeline is oldest-first
+        assert_eq!(timeline[0].title, "First");
+        assert_eq!(timeline[2].title, "Third");
+    }
+
+    #[test]
+    fn test_recent_events_order() {
+        let db = test_db();
+        db.insert_event(&sample_event("t1", "f", "First")).unwrap();
+        db.insert_event(&sample_event("t2", "f", "Second")).unwrap();
+
+        let recent = db.get_recent_events(10).unwrap();
+        // Recent is newest-first
+        assert_eq!(recent[0].title, "Second");
+        assert_eq!(recent[1].title, "First");
+    }
+
+    #[test]
+    fn test_stats() {
+        let db = test_db();
+        db.insert_event(&sample_event("cursor", "feature", "A")).unwrap();
+        db.insert_event(&sample_event("cursor", "bug_fix", "B")).unwrap();
+        db.insert_event(&sample_event("claude", "refactor", "C")).unwrap();
+
+        let stats = db.get_stats().unwrap();
+        assert!(!stats.is_empty());
+        // cursor should have 2, claude should have 1
+        let cursor_count = stats.iter().find(|(t, _)| t == "cursor").map(|(_, c)| *c);
+        assert_eq!(cursor_count, Some(2));
+
+        let count = db.count_events().unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_filtered_events() {
+        let db = test_db();
+        db.insert_event(&sample_event("cursor", "feature", "A")).unwrap();
+        db.insert_event(&sample_event("claude", "bug_fix", "B")).unwrap();
+        db.insert_event(&sample_event("cursor", "bug_fix", "C")).unwrap();
+
+        // Filter by tool
+        let results = db.get_filtered_events(10, Some("cursor".into()), None, None, None).unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Filter by type
+        let results = db.get_filtered_events(10, None, Some("bug_fix".into()), None, None).unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Filter by tool AND type
+        let results = db.get_filtered_events(10, Some("cursor".into()), Some("bug_fix".into()), None, None).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "C");
+    }
+
+    #[test]
+    fn test_get_last_event_id() {
+        let db = test_db();
+        assert!(db.get_last_event_id().unwrap().is_none());
+
+        db.insert_event(&sample_event("t", "f", "A")).unwrap();
+        let id2 = db.insert_event(&sample_event("t", "f", "B")).unwrap();
+
+        assert_eq!(db.get_last_event_id().unwrap(), Some(id2));
+    }
+
+    #[test]
+    fn test_get_event_by_uuid() {
+        let db = test_db();
+        let event = sample_event("cursor", "feature", "UUID test");
+        let uuid = event.uuid.clone();
+        db.insert_event(&event).unwrap();
+
+        let found = db.get_event_by_uuid(&uuid).unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().title, "UUID test");
+
+        assert!(db.get_event_by_uuid("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_session_events() {
+        let db = test_db();
+        let e1 = sample_event("t", "f", "A").with_session("sess-1".into());
+        let e2 = sample_event("t", "f", "B").with_session("sess-1".into());
+        let e3 = sample_event("t", "f", "C").with_session("sess-2".into());
+
+        db.insert_event(&e1).unwrap();
+        db.insert_event(&e2).unwrap();
+        db.insert_event(&e3).unwrap();
+
+        let sess1 = db.get_session_events("sess-1", 10).unwrap();
+        assert_eq!(sess1.len(), 2);
+
+        let sessions = db.get_sessions().unwrap();
+        assert_eq!(sessions.len(), 2);
+    }
+
+    #[test]
+    fn test_context_summary() {
+        let db = test_db();
+        db.insert_event(&sample_event("cursor", "feature", "Built auth").with_tags(vec!["security".into()])).unwrap();
+        db.insert_event(&sample_event("claude", "bug_fix", "Fixed race")).unwrap();
+
+        let ctx = db.get_context_summary(10).unwrap();
+        assert!(ctx.contains("Engineering Context Summary"));
+        assert!(ctx.contains("cursor"));
+        assert!(ctx.contains("Built auth"));
+        assert!(ctx.contains("Fixed race"));
+        assert!(ctx.contains("#security"));
+    }
+
+    #[test]
+    fn test_tags_and_metadata() {
+        let db = test_db();
+        let event = sample_event("t", "f", "Tagged")
+            .with_tags(vec!["rust".into(), "perf".into()])
+            .with_metadata(serde_json::json!({"key": "value"}));
+        let id = db.insert_event(&event).unwrap();
+
+        let retrieved = db.get_event(id).unwrap().unwrap();
+        assert_eq!(retrieved.tags.unwrap(), vec!["rust", "perf"]);
+        assert_eq!(retrieved.metadata.unwrap()["key"], "value");
+    }
+
+    #[test]
+    fn test_diff_storage() {
+        let db = test_db();
+        let event = sample_event("t", "f", "With diff")
+            .with_diff("+added line\n-removed line".into());
+        let id = db.insert_event(&event).unwrap();
+
+        let retrieved = db.get_event(id).unwrap().unwrap();
+        assert!(retrieved.diff.unwrap().contains("+added line"));
+    }
+
+    #[test]
+    fn test_validation_rejects_empty_fields() {
+        let db = test_db();
+        let event = Event::new("".into(), "f".into(), "T".into(), None, None, None);
+        assert!(db.insert_event(&event).is_err());
+
+        let event = Event::new("t".into(), "".into(), "T".into(), None, None, None);
+        assert!(db.insert_event(&event).is_err());
+
+        let event = Event::new("t".into(), "f".into(), "  ".into(), None, None, None);
+        assert!(db.insert_event(&event).is_err());
+    }
+
+    #[test]
+    fn test_limit_capping() {
+        let db = test_db();
+        for i in 0..5 {
+            db.insert_event(&sample_event("t", "f", &format!("Event {}", i))).unwrap();
+        }
+
+        let events = db.get_recent_events(3).unwrap();
+        assert_eq!(events.len(), 3);
+
+        let events = db.get_recent_events(100).unwrap();
+        assert_eq!(events.len(), 5);
+    }
+}

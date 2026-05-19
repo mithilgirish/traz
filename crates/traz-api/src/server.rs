@@ -64,6 +64,7 @@ pub fn create_router(db: Arc<Db>) -> Router {
         .route("/events/{id}", delete(delete_event))
         .route("/search", get(search_events))
         .route("/timeline", get(timeline))
+        .route("/context", get(context_summary))
         .route("/health", get(health))
         .route("/stats", get(stats))
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
@@ -229,6 +230,32 @@ async fn delete_event(State(state): State<AppState>, Path(id): Path<i64>) -> imp
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": "Failed to delete event" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn context_summary(
+    State(state): State<AppState>,
+    Query(filter): Query<FilterQuery>,
+) -> impl IntoResponse {
+    let limit = filter.limit.unwrap_or(10).min(100);
+    match state.db.get_context_summary(limit) {
+        Ok(ctx) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "context": ctx,
+                "format": "markdown",
+                "version": env!("CARGO_PKG_VERSION")
+            })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("Context summary failed: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to generate context summary" })),
             )
                 .into_response()
         }

@@ -137,6 +137,98 @@ pub fn print_events_json(events: &[Event]) {
     println!("{}", json);
 }
 
+/// Print full details of a single event (for `traz show`)
+pub fn print_event_detail(event: &Event) {
+    #[allow(non_snake_case, unused_variables)]
+    let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = get_colors();
+    let icon = type_icon(&event.event_type);
+    let rel = relative_time(&event.timestamp);
+    let ts = event.timestamp.format("%Y-%m-%d %H:%M:%S UTC");
+
+    println!();
+    println!("  {BOLD}{icon} {}{RESET}", event.title);
+    println!("  {DIM}────────────────────────────────────────{RESET}");
+
+    if let Some(id) = event.id {
+        println!("  {DIM}ID:{RESET}        {CYAN}#{}{RESET}", id);
+    }
+    println!("  {DIM}UUID:{RESET}      {DIM}{}{RESET}", event.uuid);
+    println!("  {DIM}Tool:{RESET}      {CYAN}{}{RESET}", event.tool);
+    println!("  {DIM}Type:{RESET}      {MAGENTA}{}{RESET}", event.event_type);
+    println!("  {DIM}When:{RESET}      {} {DIM}({}){RESET}", ts, rel);
+
+    if let Some(ref session) = event.session_id {
+        println!("  {DIM}Session:{RESET}   {YELLOW}{}{RESET}", session);
+    }
+
+    if let Some(ref summary) = event.summary {
+        println!();
+        println!("  {BOLD}Summary{RESET}");
+        for line in summary.lines() {
+            println!("  {DIM}{}{RESET}", line);
+        }
+    }
+
+    if let Some(ref files) = event.files {
+        if !files.is_empty() {
+            println!();
+            println!("  {BOLD}Files{RESET}");
+            for f in files {
+                println!("  {BLUE}  {f}{RESET}");
+            }
+        }
+    }
+
+    if let Some(ref tags) = event.tags {
+        if !tags.is_empty() {
+            let tag_str = tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join(" ");
+            println!();
+            println!("  {DIM}Tags:{RESET} {YELLOW}{tag_str}{RESET}");
+        }
+    }
+
+    if let Some(ref diff) = event.diff {
+        let line_count = diff.lines().count();
+        println!();
+        println!("  {DIM}Diff:{RESET} {GREEN}+{} lines{RESET} {DIM}(use `traz diff {}` to view){RESET}",
+            line_count, event.id.unwrap_or(0));
+    }
+
+    if let Some(ref metadata) = event.metadata {
+        println!();
+        println!("  {BOLD}Metadata{RESET}");
+        if let Ok(pretty) = serde_json::to_string_pretty(metadata) {
+            for line in pretty.lines() {
+                println!("  {DIM}{}{RESET}", line);
+            }
+        }
+    }
+
+    println!();
+}
+
+/// Print context summary with ANSI coloring
+pub fn print_context(ctx: &str) {
+    #[allow(non_snake_case, unused_variables)]
+    let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = get_colors();
+
+    for line in ctx.lines() {
+        if line.starts_with("# ") {
+            println!("{BOLD}{CYAN}{}{RESET}", line);
+        } else if line.starts_with("## ") {
+            println!("{BOLD}{YELLOW}{}{RESET}", line);
+        } else if line.starts_with("### ") {
+            println!("{BOLD}{}{RESET}", line);
+        } else if line.starts_with("- **") {
+            println!("  {DIM}{}{RESET}", line);
+        } else if line.starts_with("**") {
+            println!("{BOLD}{}{RESET}", line);
+        } else {
+            println!("{}", line);
+        }
+    }
+}
+
 pub fn print_empty(msg: &str) {
     #[allow(non_snake_case, unused_variables)]
     let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = get_colors();
@@ -161,4 +253,10 @@ pub fn print_info(msg: &str) {
     #[allow(non_snake_case, unused_variables)]
     let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = get_colors();
     println!("  {CYAN}ℹ{RESET} {msg}");
+}
+
+pub fn print_warning(msg: &str) {
+    #[allow(non_snake_case, unused_variables)]
+    let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = get_colors();
+    println!("  {YELLOW}⚠{RESET} {msg}");
 }

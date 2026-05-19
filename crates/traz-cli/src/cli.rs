@@ -7,12 +7,15 @@ use clap::{Parser, Subcommand};
     long_about = "traz is a local-first developer memory layer that captures debugging history,\n\
                   architectural decisions, and workflow traces — making that context available\n\
                   to every AI tool in your stack.\n\n\
-                  No cloud. No auth. Everything stays on your machine.",
+                  No cloud. No auth. Everything stays on your machine.\n\n\
+                  Run `traz` with no arguments to enter interactive mode.",
     version,
     after_help = "Examples:\n  \
                   traz add --tool cursor --event-type bug_fix --title \"Fixed reconnect\"\n  \
                   traz recent --limit 5\n  \
                   traz search \"memory leak\"\n  \
+                  traz context\n  \
+                  traz show 42\n  \
                   traz capture\n  \
                   traz serve --port 4000\n  \
                   traz setup claude\n  \
@@ -20,7 +23,7 @@ use clap::{Parser, Subcommand};
 )]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -139,14 +142,62 @@ pub enum Commands {
         id: i64,
     },
 
+    /// Undo the last event (deletes the most recent entry)
+    Undo,
+
+    /// Compress older events into a single summary epoch to save context size
+    Compress {
+        /// Number of days old an event must be to be compressed
+        #[arg(short, long, default_value_t = 14)]
+        days: u32,
+
+        /// The summary text for the epoch event
+        #[arg(short, long)]
+        summary: String,
+    },
+
+    /// Rewind the timeline to a specific event ID (deletes all events after it)
+    Rewind {
+        /// The event ID to use as a checkpoint (this event is kept)
+        id: i64,
+    },
+
+    /// Show full details of a specific event
+    Show {
+        /// Event ID to display
+        id: i64,
+
+        /// Output as raw JSON
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
     /// Show the full code diff for a specific event
     Diff {
         /// Event ID to view the diff for
         id: i64,
     },
 
+    /// Generate a context summary for AI agents (markdown)
+    Context {
+        /// Number of recent events to include
+        #[arg(short, long, default_value_t = 10)]
+        limit: u32,
+
+        /// Output as raw JSON instead of markdown
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
     /// Show database statistics and storage info
-    Stats,
+    Stats {
+        /// Output as raw JSON
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
+
+    /// Import events from JSON on stdin
+    Import,
 
     /// Start the local REST API server for tool integrations
     Serve {

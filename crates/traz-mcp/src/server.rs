@@ -135,6 +135,44 @@ fn build_tool_definitions() -> Value {
             "name": "traz_timeline",
             "description": "Get the full chronological timeline of engineering events, oldest first.",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "traz_context",
+            "description": "Get a structured markdown summary of recent engineering activity, perfect for establishing context before starting a task.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "number", "description": "Number of recent events to include (default 10)" }
+                }
+            }
+        },
+        {
+            "name": "traz_stats",
+            "description": "Get database statistics including total events and event counts per tool.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "traz_delete",
+            "description": "Delete a specific engineering event by its ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number", "description": "The ID of the event to delete" }
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "traz_compress",
+            "description": "Compress older events into a single 'epoch' summary event to save context space. AI agents can use this to keep the timeline manageable. You should fetch events first, summarize them, and then pass that summary here.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "days": { "type": "number", "description": "Number of days old an event must be to be compressed" },
+                    "summary": { "type": "string", "description": "The high-level summary of the events being compressed" }
+                },
+                "required": ["days", "summary"]
+            }
         }
     ])
 }
@@ -213,6 +251,56 @@ fn handle_tool_call(db: &Db, req: &Value) -> Value {
             Ok(events) => tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default()),
             Err(e) => tool_err(&e.to_string()),
         },
+        "traz_context" => {
+            let limit = args
+                .get("limit")
+                .and_then(|l| l.as_u64())
+                .unwrap_or(10)
+                .min(100) as u32;
+            match db.get_context_summary(limit) {
+                Ok(ctx) => tool_ok(&ctx),
+                Err(e) => tool_err(&e.to_string()),
+            }
+        }
+        "traz_stats" => {
+            let count = db.count_events().unwrap_or(0);
+            let stats = db.get_stats().unwrap_or_default();
+            let mut summary = format!("Total Events: {}\n\nBy Tool:\n", count);
+            for (tool, c) in stats {
+                summary.push_str(&format!("- {}: {}\n", tool, c));
+            }
+            tool_ok(&summary)
+        }
+        "traz_delete" => {
+            if let Some(id) = args.get("id").and_then(|i| i.as_i64()) {
+                match db.delete_event(id) {
+                    Ok(true) => tool_ok(&format!("Event #{} deleted.", id)),
+                    Ok(false) => tool_err(&format!("Event #{} not found.", id)),
+                    Err(e) => tool_err(&e.to_string()),
+                }
+            } else {
+                tool_err("Missing required argument: id")
+            }
+        }
+        "traz_compress" => {
+            let days = args.get("days").and_then(|d| d.as_u64()).map(|d| d as u32);
+            let summary = args.get("summary").and_then(|s| s.as_str());
+
+            if let (Some(d), Some(s)) = (days, summary) {
+                match db.compress_events(d, s.to_string()) {
+                    Ok((count, new_id)) => {
+                        if count > 0 {
+                            tool_ok(&format!("Compressed {} events older than {} days into new Epoch event #{}.", count, d, new_id))
+                        } else {
+                            tool_ok(&format!("No events older than {} days found. Nothing was compressed.", d))
+                        }
+                    }
+                    Err(e) => tool_err(&e.to_string()),
+                }
+            } else {
+                tool_err("Missing required arguments: days, summary")
+            }
+        }
         _ => tool_err(&format!("Unknown tool: {}", name)),
     }
 }

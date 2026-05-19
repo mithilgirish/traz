@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ─── Create GitHub Release ─────────────────────────────────
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create.outputs.upload_url }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: meta
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        id: create
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: traz ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+
+  # ─── Build binaries for each platform ──────────────────────
+  build:
+    name: Build ${{ matrix.target }}
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            cross: true
+
+          # macOS
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+
+          # Windows
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      # Cross-compile for aarch64 Linux
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build release binary
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} --bin traz
+          else
+            cargo build --release --target ${{ matrix.target }} --bin traz
+          fi
+        shell: bash
+
+      # ── Package ──────────────────────────────────────────────
+      - name: Package (Unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          STAGING="traz-${{ needs.create-release.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "$STAGING"
+          cp target/${{ matrix.target }}/release/traz "$STAGING/"
+          cp README.md LICENSE "$STAGING/"
+          tar czf "$STAGING.tar.gz" "$STAGING"
+          echo "ASSET=$STAGING.tar.gz" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        run: |
+          $STAGING = "traz-${{ needs.create-release.outputs.version }}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $STAGING
+          Copy-Item "target/${{ matrix.target }}/release/traz.exe" "$STAGING/"
+          Copy-Item "README.md", "LICENSE" "$STAGING/"
+          Compress-Archive -Path "$STAGING/*" -DestinationPath "$STAGING.zip"
+          echo "ASSET=$STAGING.zip" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.ASSET }}
+
+  # ─── Publish to crates.io ──────────────────────────────────
+  publish:
+    name: Publish to crates.io
+    needs: [build]
+    runs-on: ubuntu-latest
+    # Only publish on non-prerelease tags
+    if: ${{ !contains(github.ref_name, '-') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Publish crates in dependency order
+      - name: Publish traz-core
+        run: cargo publish -p traz-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+      - name: Publish traz-db
+        run: |
+          sleep 15  # wait for crates.io index update
+          cargo publish -p traz-db --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+      - name: Publish traz-integrations
+        run: |
+          sleep 15
+          cargo publish -p traz-integrations --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+      - name: Publish traz-api
+        run: |
+          sleep 15
+          cargo publish -p traz-api --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+      - name: Publish traz-mcp
+        run: |
+          sleep 15
+          cargo publish -p traz-mcp --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+      - name: Publish traz-cli
+        run: |
+          sleep 15
+          cargo publish -p traz-cli --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
