@@ -9,6 +9,7 @@ use display::{
     print_context, print_empty, print_event_detail, print_events, print_events_json, print_header,
     print_info, print_success, print_warning,
 };
+use std::io::IsTerminal;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use traz_core::{Event, TrazConfig};
@@ -18,6 +19,24 @@ use traz_db::Db;
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if cli.print_share_dir {
+        let config = TrazConfig::resolve();
+        println!("{}", config.data_dir().display());
+        return Ok(());
+    }
+
+    let mut config = TrazConfig::resolve();
+
+    // Handle project-local initialization before opening the database
+    if let Some(Commands::Init { local: true, .. }) = &cli.command {
+        let local_dir = std::path::Path::new(".traz");
+        if !local_dir.exists() {
+            std::fs::create_dir_all(local_dir)?;
+            // Re-resolve so we pick up the new local directory
+            config = TrazConfig::resolve();
+        }
+    }
+
     match cli.command {
         Some(command) => {
             let needs_tracing = matches!(&command, Commands::Serve { .. } | Commands::Mcp);
@@ -25,12 +44,11 @@ async fn main() -> Result<()> {
                 tracing_subscriber::fmt::init();
             }
 
-            let config = TrazConfig::resolve();
+            let db_existed = config.db_path.exists();
             let db = Arc::new(Db::open(&config.db_path)?);
-            run_command(command, &config, db).await?;
+            run_command(command, &config, db, db_existed).await?;
         }
         None => {
-            // Interactive REPL mode
             run_interactive().await?;
         }
     }
@@ -38,24 +56,104 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Execute a single traz command
-async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>) -> Result<()> {
+async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_existed: bool) -> Result<()> {
     match command {
         // ── Project setup ───────────────────────────────────────────
-        Commands::Init { hook } => {
-            print_success(&format!(
-                "traz initialized. Database at: {}",
-                config.db_path.display()
-            ));
+        Commands::Init { hook, with_embeddings, local: _ } => {
+            #[allow(non_snake_case, unused_variables)]
+            let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
 
-            if hook {
-                match traz_integrations::git::install_post_commit_hook() {
-                    Ok(_) => print_success("Git post-commit hook installed."),
-                    Err(e) => print_empty(&format!("Failed to install hook: {}", e)),
+            if db_existed {
+                let count = db.count_events()?;
+                println!(
+                    "  {GREEN}✓{RESET} {BOLD}Traz already initialized{RESET} (DB: {}, {} events)",
+                    config.db_path.display(),
+                    count
+                );
+            } else {
+                println!("  {GREEN}✓{RESET} {BOLD}Traz initialized{RESET}");
+                println!("    {DIM}DB:{RESET}   {}", config.db_path.display());
+                println!("    {BOLD}Next:{RESET} run {CYAN}`traz setup claude`{RESET} to connect Claude Code");
+                println!("          run {CYAN}`traz init --hook`{RESET} to install git hooks");
+                println!("          run {CYAN}`traz serve`{RESET} to start the REST API on :4000");
+            }
+
+            if with_embeddings {
+                println!("  Downloading embedding model (all-MiniLM-L6-v2, ~25MB)...");
+                let spinner_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+                let spinner_running_clone = spinner_running.clone();
+                let spinner_handle = std::thread::spawn(move || {
+                    while spinner_running_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        print!(".");
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                });
+
+                match traz_embeddings::get_embedder() {
+                    Ok(_) => {
+                        spinner_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                        let _ = spinner_handle.join();
+                        println!();
+
+                        let mut new_config = config.clone();
+                        new_config.embeddings_enabled = true;
+                        if let Err(e) = new_config.save() {
+                            eprintln!("Error saving configuration: {}", e);
+                            std::process::exit(1);
+                        }
+
+                        println!(
+                            "  {GREEN}✓{RESET} {BOLD}Semantic search enabled{RESET}. Re-run `traz search` to use it."
+                        );
+                        println!(
+                            "  {YELLOW}[EXPERIMENTAL]{RESET} Semantic search is experimental in v0.1.\n\
+                            \x20\x20First search may be slow (model load ~2s). Report issues at github.com/mithilgirish/traz"
+                        );
+                    }
+                    Err(e) => {
+                        spinner_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                        let _ = spinner_handle.join();
+                        println!();
+
+                        let mut new_config = config.clone();
+                        new_config.embeddings_enabled = false;
+                        let _ = new_config.save();
+
+                        eprintln!("Error initializing embedding model: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             }
 
-            print_info("Run `traz setup <tool>` to configure integrations.");
+            if hook {
+                match traz_integrations::git::install_hooks(std::path::Path::new(".")) {
+                    Ok(_) => {
+                        let git_dir = std::process::Command::new("git")
+                            .args(["rev-parse", "--git-dir"])
+                            .output()
+                            .ok()
+                            .and_then(|out| {
+                                if out.status.success() {
+                                    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_else(|| ".git".to_string());
+                        
+                        let git_dir_path = std::path::Path::new(&git_dir);
+                        print_success(&format!("Installed post-commit hook: {}", git_dir_path.join("hooks/post-commit").display()));
+                        print_success(&format!("Installed post-checkout hook: {}", git_dir_path.join("hooks/post-checkout").display()));
+                        print_success(&format!("Installed pre-push hook: {}", git_dir_path.join("hooks/pre-push").display()));
+                    }
+                    Err(e) => print_empty(&format!("Failed to install hooks: {}", e)),
+                }
+            }
+
+            if !db_existed && !hook {
+                println!();
+            }
         }
 
         // ── Read commands ───────────────────────────────────────────
@@ -100,19 +198,75 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>) -> Res
             tool,
             json,
         } => {
-            let events = db.search_events(&query, tool.as_deref(), limit)?;
-            if events.is_empty() {
-                print_empty(&format!("No events matching \"{}\".", query));
-            } else if json {
-                print_events_json(&events);
+            let limit = limit.min(50);
+            #[allow(non_snake_case, unused_variables)]
+            let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
+
+            if db.config.embeddings_enabled {
+                let mut results = db.semantic_search(&query, limit as usize)?;
+                if let Some(ref tool_filter) = tool {
+                    results.retain(|(event, _)| event.tool.eq_ignore_ascii_case(tool_filter));
+                }
+
+                if results.is_empty() {
+                    print_empty(&format!("No events matching \"{}\".", query));
+                } else if json {
+                    let json = serde_json::to_string_pretty(&results)?;
+                    println!("{}", json);
+                } else {
+                    print_header(&format!(
+                        "[semantic search] Search: \"{}\" ({} results)",
+                        query,
+                        results.len()
+                    ));
+
+                    for (idx, (event, score)) in results.iter().enumerate() {
+                        let num = idx + 1;
+                        let age = display::relative_time(&event.timestamp);
+                        let tags_str = event.tags.as_ref()
+                            .map(|t| t.iter().map(|s| format!("#{s}")).collect::<Vec<_>>().join(" "))
+                            .unwrap_or_default();
+                        
+                        let highlighted_title = highlight_term(&event.title, &query);
+
+                        println!("  {:>2}. {} {GREEN}({:.0}%){RESET}", num, highlighted_title, score * 100.0);
+                        println!(
+                            "      {DIM}Tool:{RESET} {:<12} {DIM}Type:{RESET} {:<12} {DIM}Age:{RESET} {:<10} {DIM}Tags:{RESET} {}",
+                            event.tool, event.event_type, age, tags_str
+                        );
+                        println!();
+                    }
+                }
             } else {
-                print_header(&format!(
-                    "Search: \"{}\" ({} results)",
-                    query,
-                    events.len()
-                ));
-                print_events(&events);
-                println!();
+                let events = db.search_events(&query, tool.as_deref(), limit)?;
+                if events.is_empty() {
+                    print_empty(&format!("No events matching \"{}\".", query));
+                } else if json {
+                    print_events_json(&events);
+                } else {
+                    print_header(&format!(
+                        "[keyword search] Search: \"{}\" ({} results)",
+                        query,
+                        events.len()
+                    ));
+
+                    for (idx, event) in events.iter().enumerate() {
+                        let num = idx + 1;
+                        let age = display::relative_time(&event.timestamp);
+                        let tags_str = event.tags.as_ref()
+                            .map(|t| t.iter().map(|s| format!("#{s}")).collect::<Vec<_>>().join(" "))
+                            .unwrap_or_default();
+                        
+                        let highlighted_title = highlight_term(&event.title, &query);
+
+                        println!("  {:>2}. {}", num, highlighted_title);
+                        println!(
+                            "      {DIM}Tool:{RESET} {:<12} {DIM}Type:{RESET} {:<12} {DIM}Age:{RESET} {:<10} {DIM}Tags:{RESET} {}",
+                            event.tool, event.event_type, age, tags_str
+                        );
+                        println!();
+                    }
+                }
             }
         }
 
@@ -126,6 +280,7 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>) -> Res
             tags,
             session,
             diff,
+            metadata,
         } => {
             let files_vec = files.map(|s| {
                 s.split(',')
@@ -148,6 +303,11 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>) -> Res
             if let Some(s) = session {
                 event = event.with_session(s);
             }
+            if let Some(m) = metadata {
+                let parsed: serde_json::Value = serde_json::from_str(&m)
+                    .map_err(|e| anyhow::anyhow!("Invalid metadata JSON: {}", e))?;
+                event = event.with_metadata(parsed);
+            }
             if diff {
                 if let Ok(Some(d)) = traz_integrations::git::get_uncommitted_diff() {
                     event = event.with_diff(d);
@@ -164,14 +324,30 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>) -> Res
             tool,
             diff,
         } => {
-            let mut event = Event::new(tool, event_type, message, None, None, None);
+            let message_trimmed = message.trim();
+            if message_trimmed.is_empty() {
+                anyhow::bail!("Event title/message cannot be empty.");
+            }
+
+            let mut event = Event::new(tool.clone(), event_type.clone(), message_trimmed.to_string(), None, None, None);
             if diff {
-                if let Ok(Some(d)) = traz_integrations::git::get_uncommitted_diff() {
-                    event = event.with_diff(d);
+                match traz_integrations::git::get_uncommitted_diff() {
+                    Ok(Some(d)) => {
+                        event = event.with_diff(d);
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        print_warning("No git repo found, logging without diff");
+                    }
                 }
             }
             let id = db.insert_event(&event)?;
-            print_success(&format!("Logged event #{} shorthand.", id));
+
+            #[allow(non_snake_case, unused_variables)]
+            let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
+            println!(
+                "  {GREEN}✓{RESET} Logged [{MAGENTA}{event_type}{RESET}] \"{BOLD}{message_trimmed}{RESET}\" (id: {CYAN}#{id}{RESET}, just now)"
+            );
         }
 
         Commands::Delete { id } => {
@@ -334,6 +510,88 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>) -> Res
             }
         }
 
+        Commands::Status => {
+            #[allow(non_snake_case, unused_variables)]
+            let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
+
+            print_header("Traz Status");
+
+            // 1. DB path
+            println!("  {BOLD}Database:{RESET}     {}", config.db_path.display());
+
+            // 2. Total count of events
+            let count = db.count_events()?;
+            println!("  {BOLD}Total events:{RESET} {}", count);
+
+            // 3. Last event details (handling empty DB safely)
+            println!();
+            println!("  {BOLD}Last Event:{RESET}");
+            if let Some(last_id) = db.get_last_event_id()? {
+                if let Some(event) = db.get_event(last_id)? {
+                    let icon = display::type_icon(&event.event_type);
+                    let rel = display::relative_time(&event.timestamp);
+                    println!(
+                        "    {} {BOLD}{}{RESET} {DIM}({} · {}){RESET}",
+                        icon, event.title, event.tool, rel
+                    );
+                } else {
+                    println!("    {DIM}(None){RESET}");
+                }
+            } else {
+                println!("    {DIM}(No events recorded yet){RESET}");
+            }
+
+            // 4. Tool stats breakdown
+            let by_tool = db.get_stats()?;
+            println!();
+            println!("  {BOLD}Events by Tool:{RESET}");
+            if by_tool.is_empty() {
+                println!("    {DIM}(None){RESET}");
+            } else {
+                for (tool, cnt) in &by_tool {
+                    println!("    {:<16} {}", tool, cnt);
+                }
+            }
+
+            // 5. REST API status
+            let api_running = if let Ok(addr) = "127.0.0.1:4000".parse::<std::net::SocketAddr>() {
+                if let Ok(res) = tokio::time::timeout(
+                    std::time::Duration::from_millis(100),
+                    tokio::net::TcpStream::connect(&addr),
+                )
+                .await {
+                    res.is_ok()
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            println!();
+            println!("  {BOLD}Services:{RESET}");
+            if api_running {
+                println!(
+                    "    {GREEN}✓{RESET} {BOLD}REST API{RESET}      {GREEN}Running{RESET} on port 4000"
+                );
+            } else {
+                println!(
+                    "    {DIM}✗{RESET} {BOLD}REST API{RESET}      {DIM}Not running{RESET} (start with `traz serve`)"
+                );
+            }
+
+            // 6. MCP server instructions
+            println!(
+                "    {CYAN}ℹ{RESET} {BOLD}MCP Server{RESET}    Start with {CYAN}`traz mcp`{RESET} to connect to Cursor/Claude"
+            );
+            println!();
+        }
+
+        Commands::Tui => {
+            let db_path = config.db_path.clone();
+            traz_tui::run(db_path)?;
+        }
+
         Commands::Export => {
             let events = db.get_timeline(u32::MAX)?;
             let json = serde_json::to_string_pretty(&events)?;
@@ -398,14 +656,12 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>) -> Res
     Ok(())
 }
 
-/// Interactive REPL: `❯ traz` prompt
 async fn run_interactive() -> Result<()> {
     banner::print_banner();
+    banner::print_interactive_welcome();
 
     let config = TrazConfig::resolve();
     let db = Arc::new(Db::open(&config.db_path)?);
-
-    banner::print_interactive_welcome();
 
     // Set up Ctrl+C handler for graceful exit
     let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
@@ -458,6 +714,13 @@ async fn run_interactive() -> Result<()> {
                 banner::print_banner();
                 continue;
             }
+            "tui" => {
+                let db_path = config.db_path.clone();
+                if let Err(e) = traz_tui::run(db_path) {
+                    eprintln!("  \x1b[31m✗\x1b[0m Failed to launch TUI: {}", e);
+                }
+                continue;
+            }
             _ => {}
         }
 
@@ -484,7 +747,7 @@ async fn run_interactive() -> Result<()> {
                         }
                         _ => {}
                     }
-                    if let Err(e) = run_command(cmd, &config, db.clone()).await {
+                    if let Err(e) = run_command(cmd, &config, db.clone(), true).await {
                         eprintln!("  \x1b[31m✗\x1b[0m {}", e);
                     }
                 }
@@ -507,7 +770,6 @@ async fn run_interactive() -> Result<()> {
     Ok(())
 }
 
-/// Simple shell-like splitting that respects double quotes
 fn shell_split(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -533,4 +795,41 @@ fn shell_split(input: &str) -> Vec<String> {
     }
 
     tokens
+}
+
+fn should_use_color() -> bool {
+    if std::env::var("NO_COLOR").is_ok() {
+        return false;
+    }
+    if std::env::var("TERM").unwrap_or_default() == "dumb" {
+        return false;
+    }
+    std::io::stdout().is_terminal()
+}
+
+fn highlight_term(title: &str, query: &str) -> String {
+    if query.is_empty() || !should_use_color() {
+        return title.to_string();
+    }
+
+    let query_lower = query.to_lowercase();
+    let title_lower = title.to_lowercase();
+
+    let mut result = String::new();
+    let mut last_idx = 0;
+
+    while let Some(start_idx) = title_lower[last_idx..].find(&query_lower) {
+        let match_start = last_idx + start_idx;
+        let match_end = match_start + query.len();
+
+        result.push_str(&title[last_idx..match_start]);
+        result.push_str("\x1b[1m");
+        result.push_str(&title[match_start..match_end]);
+        result.push_str("\x1b[0m");
+
+        last_idx = match_end;
+    }
+
+    result.push_str(&title[last_idx..]);
+    result
 }

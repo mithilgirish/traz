@@ -53,4 +53,16 @@ impl Db {
         }
         Ok(out)
     }
+
+    /// Return the number of events that occurred strictly after the given event ID.
+    pub fn count_events_after(&self, id: i64) -> Result<usize> {
+        let conn = self.lock_conn();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM events WHERE id > ?1",
+            [id],
+            |row| row.get(0)
+        )?;
+        Ok(count as usize)
+    }
 }
+

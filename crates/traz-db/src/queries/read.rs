@@ -241,4 +241,42 @@ impl Db {
 
         Ok(ctx)
     }
+
+    /// Optimized semantic search using one-pass join scanning and f32 cosine similarities.
+    pub fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<(Event, f32)>> {
+        // TODO v0.2: use sqlite-vec extension for ANN search
+        
+        let query_vec = traz_embeddings::embed_text(query)?;
+        
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(
+            "SELECT e.id, e.uuid, e.tool, e.type, e.title, e.summary, e.files, e.metadata, e.tags, e.session_id, e.diff, e.timestamp, e.created_at, ee.vector
+             FROM events e
+             INNER JOIN event_embeddings ee ON e.id = ee.event_id"
+        )?;
+        
+        let mut results = Vec::new();
+        let mut rows = stmt.query([])?;
+        
+        while let Some(row) = rows.next()? {
+            let event = row_to_event(row)?;
+            let vector_bytes: Vec<u8> = row.get(13)?;
+            let event_vec: Vec<f32> = vector_bytes
+                .chunks(4)
+                .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+                .collect();
+            
+            let similarity = traz_embeddings::cosine_similarity(&query_vec, &event_vec);
+            let similarity = similarity.clamp(0.0, 1.0);
+            results.push((event, similarity));
+        }
+        
+        // Sort by similarity descending
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        // Take top `limit`
+        results.truncate(limit);
+        
+        Ok(results)
+    }
 }

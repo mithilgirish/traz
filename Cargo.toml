@@ -7,6 +7,8 @@ members = [
     "crates/traz-api",
     "crates/traz-mcp",
     "crates/traz-integrations",
+    "crates/traz-tui",
+    "crates/traz-embeddings",
 ]
 
 [workspace.package]
@@ -33,6 +35,8 @@ tracing-subscriber = "0.3"
 axum = "0.7"
 tower-http = { version = "0.5", features = ["trace", "cors"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+toml = "0.8"
+fastembed = "3"
 
 # Internal crates
 traz-core = { path = "crates/traz-core" }
@@ -40,9 +44,13 @@ traz-db = { path = "crates/traz-db" }
 traz-api = { path = "crates/traz-api" }
 traz-mcp = { path = "crates/traz-mcp" }
 traz-integrations = { path = "crates/traz-integrations" }
+traz-embeddings = { path = "crates/traz-embeddings" }
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+[patch.crates-io]
+hf-hub = { path = "crates/hf-hub" }

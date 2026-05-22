@@ -1,0 +1,17 @@
+[package]
+name = "traz-tui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Interactive terminal timeline explorer dashboard for traz"
+
+[dependencies]
+ratatui = "0.26"
+crossterm = "0.27"
+traz-db = { path = "../traz-db" }
+traz-core = { path = "../traz-core" }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

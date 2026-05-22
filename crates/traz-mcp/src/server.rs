@@ -5,11 +5,31 @@ use std::sync::Arc;
 use traz_core::Event;
 use traz_db::Db;
 
+#[allow(dead_code)]
+const STABLE_TOOLS: &[&str] = &[
+    "traz_recent",
+    "traz_search",
+    "traz_add",
+    "traz_context",
+    "traz_stats",
+];
+
+const EXPERIMENTAL_TOOLS: &[&str] = &[
+    "traz_timeline",
+    "traz_delete",
+    "traz_compress",
+];
+
 /// Maximum line length accepted from stdin (1 MB).
 const MAX_LINE_LEN: usize = 1_024 * 1_024;
 
 /// Run the MCP (Model Context Protocol) stdio server.
 pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
+    let experimental = std::env::var("TRAZ_EXPERIMENTAL").unwrap_or_default() == "1";
+    if experimental {
+        eprintln!("[traz] experimental MCP tools enabled (traz_timeline, traz_delete, traz_compress). These may change in v0.2.");
+    }
+
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let reader = io::BufReader::new(stdin.lock());
@@ -70,11 +90,11 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
             "tools/list" => json!({
                 "jsonrpc": "2.0",
                 "id": id,
-                "result": { "tools": build_tool_definitions() }
+                "result": { "tools": build_tool_definitions(experimental) }
             }),
 
             "tools/call" => {
-                let result = handle_tool_call(&db, &req);
+                let result = handle_tool_call(&db, &req, experimental);
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
 
@@ -92,9 +112,9 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
     Ok(())
 }
 
-fn build_tool_definitions() -> Value {
-    json!([
-        {
+fn build_tool_definitions(experimental: bool) -> Value {
+    let mut tools = vec![
+        json!({
             "name": "traz_recent",
             "description": "Get recent engineering events from the traz local timeline. Use this to understand what was recently worked on, debugged, or decided.",
             "inputSchema": {
@@ -103,8 +123,8 @@ fn build_tool_definitions() -> Value {
                     "limit": { "type": "number", "description": "Number of events to retrieve (default 10, max 100)" }
                 }
             }
-        },
-        {
+        }),
+        json!({
             "name": "traz_search",
             "description": "Search the traz engineering timeline for events matching a keyword. Searches across titles, summaries, tools, types, and filenames.",
             "inputSchema": {
@@ -114,8 +134,8 @@ fn build_tool_definitions() -> Value {
                 },
                 "required": ["query"]
             }
-        },
-        {
+        }),
+        json!({
             "name": "traz_add",
             "description": "Add a new engineering event to the traz timeline. Use this to record bug fixes, refactors, decisions, or any context worth preserving.",
             "inputSchema": {
@@ -130,13 +150,8 @@ fn build_tool_definitions() -> Value {
                 },
                 "required": ["tool", "type", "title"]
             }
-        },
-        {
-            "name": "traz_timeline",
-            "description": "Get the full chronological timeline of engineering events, oldest first.",
-            "inputSchema": { "type": "object", "properties": {} }
-        },
-        {
+        }),
+        json!({
             "name": "traz_context",
             "description": "Get a structured markdown summary of recent engineering activity, perfect for establishing context before starting a task.",
             "inputSchema": {
@@ -145,13 +160,21 @@ fn build_tool_definitions() -> Value {
                     "limit": { "type": "number", "description": "Number of recent events to include (default 10)" }
                 }
             }
-        },
-        {
+        }),
+        json!({
             "name": "traz_stats",
             "description": "Get database statistics including total events and event counts per tool.",
             "inputSchema": { "type": "object", "properties": {} }
-        },
-        {
+        }),
+    ];
+
+    if experimental {
+        tools.push(json!({
+            "name": "traz_timeline",
+            "description": "Get the full chronological timeline of engineering events, oldest first.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }));
+        tools.push(json!({
             "name": "traz_delete",
             "description": "Delete a specific engineering event by its ID.",
             "inputSchema": {
@@ -161,8 +184,8 @@ fn build_tool_definitions() -> Value {
                 },
                 "required": ["id"]
             }
-        },
-        {
+        }));
+        tools.push(json!({
             "name": "traz_compress",
             "description": "Compress older events into a single 'epoch' summary event to save context space. AI agents can use this to keep the timeline manageable. You should fetch events first, summarize them, and then pass that summary here.",
             "inputSchema": {
@@ -173,16 +196,22 @@ fn build_tool_definitions() -> Value {
                 },
                 "required": ["days", "summary"]
             }
-        }
-    ])
+        }));
+    }
+
+    Value::Array(tools)
 }
 
-fn handle_tool_call(db: &Db, req: &Value) -> Value {
+fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
     let default_params = json!({});
     let params = req.get("params").unwrap_or(&default_params);
     let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let default_args = json!({});
     let args = params.get("arguments").unwrap_or(&default_args);
+
+    if !experimental && EXPERIMENTAL_TOOLS.contains(&name) {
+        return tool_err(&format!("Unknown tool: {}", name));
+    }
 
     match name {
         "traz_recent" => {
@@ -202,12 +231,49 @@ fn handle_tool_call(db: &Db, req: &Value) -> Value {
                 return tool_err("Missing required argument: query");
             }
             let query = &query[..query.len().min(500)];
-            match db.search_events(query, None, 100) {
-                Ok(events) if events.is_empty() => {
-                    tool_ok(&format!("No events found matching \"{}\"", query))
+            if db.config.embeddings_enabled {
+                match db.semantic_search(query, 100) {
+                    Ok(results) if results.is_empty() => {
+                        tool_ok(&format!("[semantic search] No events found matching \"{}\"", query))
+                    }
+                    Ok(results) => {
+                        let mut output = String::new();
+                        output.push_str("[semantic search]\n");
+                        for (idx, (event, score)) in results.iter().enumerate() {
+                            output.push_str(&format!("{}. [{:.0}%] {} - {} (tool: {}, type: {})\n", 
+                                idx + 1, 
+                                score * 100.0, 
+                                event.title, 
+                                event.summary.as_deref().unwrap_or_default(), 
+                                event.tool, 
+                                event.event_type
+                            ));
+                        }
+                        tool_ok(&output)
+                    }
+                    Err(e) => tool_err(&e.to_string()),
                 }
-                Ok(events) => tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default()),
-                Err(e) => tool_err(&e.to_string()),
+            } else {
+                match db.search_events(query, None, 100) {
+                    Ok(events) if events.is_empty() => {
+                        tool_ok(&format!("[keyword search] No events found matching \"{}\"", query))
+                    }
+                    Ok(events) => {
+                        let mut output = String::new();
+                        output.push_str("[keyword search]\n");
+                        for (idx, event) in events.iter().enumerate() {
+                            output.push_str(&format!("{}. {} - {} (tool: {}, type: {})\n", 
+                                idx + 1, 
+                                event.title, 
+                                event.summary.as_deref().unwrap_or_default(), 
+                                event.tool, 
+                                event.event_type
+                            ));
+                        }
+                        tool_ok(&output)
+                    }
+                    Err(e) => tool_err(&e.to_string()),
+                }
             }
         }
         "traz_add" => {

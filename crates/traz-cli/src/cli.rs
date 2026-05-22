@@ -22,6 +22,10 @@ use clap::{Parser, Subcommand};
                   traz mcp"
 )]
 pub struct Cli {
+    /// Print the shared data directory path and exit
+    #[arg(long, default_value_t = false)]
+    pub print_share_dir: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -33,6 +37,14 @@ pub enum Commands {
         /// Also install a git post-commit hook
         #[arg(long, default_value_t = false)]
         hook: bool,
+
+        /// Initialize with semantic search embeddings (fastembed model)
+        #[arg(long, default_value_t = false)]
+        with_embeddings: bool,
+
+        /// Create a project-local .traz directory for isolation
+        #[arg(long, default_value_t = false)]
+        local: bool,
     },
 
     /// Show recent engineering events (newest first)
@@ -71,7 +83,7 @@ pub enum Commands {
         query: String,
 
         /// Maximum results
-        #[arg(short, long, default_value_t = 50)]
+        #[arg(short, long, default_value_t = 10)]
         limit: u32,
 
         /// Filter by tool
@@ -116,6 +128,10 @@ pub enum Commands {
         /// Capture uncommitted git diff automatically
         #[arg(long, default_value_t = false)]
         diff: bool,
+
+        /// Custom JSON metadata string to associate with the event
+        #[arg(long)]
+        metadata: Option<String>,
     },
 
     /// Quickly log a manual event shorthand
@@ -195,6 +211,12 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+
+    /// Show current traz status and database stats
+    Status,
+
+    /// Start the interactive terminal timeline explorer (TUI dashboard)
+    Tui,
 
     /// Import events from JSON on stdin
     Import,

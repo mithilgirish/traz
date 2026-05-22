@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::path::Path;
 use std::process::Command;
 use traz_core::Event;
 
@@ -132,47 +133,160 @@ pub fn get_current_branch() -> Result<String> {
 pub fn generate_post_commit_hook() -> String {
     r#"#!/bin/sh
 # traz: auto-capture git commits as engineering events
-# Install: cp this to .git/hooks/post-commit && chmod +x .git/hooks/post-commit
 traz capture 2>/dev/null || true
 "#
     .to_string()
 }
 
-/// Install the post-commit hook in the current git repo.
-/// Fails if a hook already exists to avoid overwriting user scripts.
-pub fn install_post_commit_hook() -> Result<()> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--git-dir"])
-        .output()
-        .context("Not a git repository")?;
+/// Generate a post-checkout hook script that auto-captures branch switches.
+pub fn generate_post_checkout_hook() -> String {
+    r#"#!/bin/sh
+# traz: auto-capture branch switches as engineering events
+prev_ref="$1"
+new_ref="$2"
+flag="$3"
 
-    let git_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let hook_path = std::path::Path::new(&git_dir)
-        .join("hooks")
-        .join("post-commit");
+current_branch=$(git branch --show-current)
+traz add --tool git --event-type branch_switch \
+  --title "Switched to $current_branch" \
+  --summary "From $prev_ref to $new_ref" \
+  --metadata "{\"prev_ref\":\"$prev_ref\",\"new_ref\":\"$new_ref\",\"checkout_type\":\"$flag\"}" 2>/dev/null || true
+"#
+    .to_string()
+}
 
+/// Generate a pre-push hook script that auto-captures push events.
+pub fn generate_pre_push_hook() -> String {
+    r#"#!/bin/sh
+# traz: auto-capture git pushes as engineering events
+current_branch=$(git branch --show-current)
+remote_url=$(cat .git/config 2>/dev/null | grep url | head -1 | awk '{print $3}')
+commits=$(git log "origin/$current_branch..HEAD" --oneline 2>/dev/null | head -10)
+
+traz add --tool git --event-type pre_push \
+  --title "Pre-push: $current_branch → ${remote_url:-unknown}" \
+  --summary "${commits:-No upstream branch or no new commits.}" 2>/dev/null || true
+"#
+    .to_string()
+}
+
+/// Helper function to safely write or append a git hook, ensuring it's executable.
+fn write_or_append_hook(hook_path: &Path, content: &str, marker: &str) -> Result<()> {
     if hook_path.exists() {
-        let content = std::fs::read_to_string(&hook_path)?;
-        if content.contains("traz capture") {
+        let existing = std::fs::read_to_string(hook_path)?;
+        if existing.contains(marker) {
             return Ok(()); // Already installed
         }
-        anyhow::bail!(
-            "A post-commit hook already exists at {}. Please add 'traz capture' to it manually.",
-            hook_path.display()
-        );
-    }
 
-    std::fs::create_dir_all(hook_path.parent().unwrap())?;
-    std::fs::write(&hook_path, generate_post_commit_hook())?;
+        let mut new_content = existing;
+        if !new_content.ends_with('\n') {
+            new_content.push('\n');
+        }
+
+        // Remove the shebang if appending to an existing hook
+        let lines: Vec<&str> = content.lines().collect();
+        let content_to_append = if lines.first().map(|l| l.starts_with("#!")).unwrap_or(false) {
+            lines[1..].join("\n")
+        } else {
+            content.to_string()
+        };
+
+        new_content.push_str(&content_to_append);
+        if !new_content.ends_with('\n') {
+            new_content.push('\n');
+        }
+        std::fs::write(hook_path, new_content)?;
+    } else {
+        if let Some(parent) = hook_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(hook_path, content)?;
+    }
 
     // Make executable on Unix
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&hook_path)?.permissions();
+        let mut perms = std::fs::metadata(hook_path)?.permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(&hook_path, perms)?;
+        std::fs::set_permissions(hook_path, perms)?;
     }
 
+    Ok(())
+}
+
+/// Install the post-commit hook in the current git repo.
+pub fn install_post_commit_hook(repo_path: &Path) -> Result<()> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .current_dir(repo_path)
+        .output()
+        .context("Not a git repository")?;
+
+    let git_dir_raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let git_dir = Path::new(&git_dir_raw);
+    let git_dir = if git_dir.is_absolute() {
+        git_dir.to_path_buf()
+    } else {
+        repo_path.join(git_dir)
+    };
+
+    let hook_path = git_dir.join("hooks").join("post-commit");
+    write_or_append_hook(&hook_path, &generate_post_commit_hook(), "traz capture")
+}
+
+/// Install the post-checkout hook in the current git repo.
+pub fn install_post_checkout_hook(repo_path: &Path) -> Result<()> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .current_dir(repo_path)
+        .output()
+        .context("Not a git repository")?;
+
+    let git_dir_raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let git_dir = Path::new(&git_dir_raw);
+    let git_dir = if git_dir.is_absolute() {
+        git_dir.to_path_buf()
+    } else {
+        repo_path.join(git_dir)
+    };
+
+    let hook_path = git_dir.join("hooks").join("post-checkout");
+    write_or_append_hook(
+        &hook_path,
+        &generate_post_checkout_hook(),
+        "traz add --tool git --event-type branch_switch",
+    )
+}
+
+/// Install the pre-push hook in the current git repo.
+pub fn install_pre_push_hook(repo_path: &Path) -> Result<()> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .current_dir(repo_path)
+        .output()
+        .context("Not a git repository")?;
+
+    let git_dir_raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let git_dir = Path::new(&git_dir_raw);
+    let git_dir = if git_dir.is_absolute() {
+        git_dir.to_path_buf()
+    } else {
+        repo_path.join(git_dir)
+    };
+
+    let hook_path = git_dir.join("hooks").join("pre-push");
+    write_or_append_hook(
+        &hook_path,
+        &generate_pre_push_hook(),
+        "traz add --tool git --event-type pre_push",
+    )
+}
+
+/// Install all three hooks in the current git repo.
+pub fn install_hooks(repo_path: &Path) -> Result<()> {
+    install_post_commit_hook(repo_path)?;
+    install_post_checkout_hook(repo_path)?;
+    install_pre_push_hook(repo_path)?;
     Ok(())
 }

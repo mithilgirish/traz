@@ -38,6 +38,22 @@ impl Db {
             .transpose()?;
         let tags_json = event.tags.as_ref().map(serde_json::to_string).transpose()?;
 
+        let embedding_bytes = if self.config.embeddings_enabled {
+            let text = format!("{} {}", event.title, event.summary.as_deref().unwrap_or_default());
+            match traz_embeddings::embed_text(&text) {
+                Ok(vec) => {
+                    let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
+                    Some(bytes)
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to generate event embedding: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO events (uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp)
@@ -57,7 +73,21 @@ impl Db {
             ],
         )?;
 
-        Ok(conn.last_insert_rowid())
+        let event_id = conn.last_insert_rowid();
+
+        if let Some(bytes) = embedding_bytes {
+            let model_version = "all-MiniLM-L6-v2";
+            let created_at = chrono::Utc::now().to_rfc3339();
+            if let Err(e) = conn.execute(
+                "INSERT INTO event_embeddings (event_id, vector, model_version, created_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![event_id, bytes, model_version, created_at],
+            ) {
+                eprintln!("Warning: Failed to insert event embedding: {}", e);
+            }
+        }
+
+        Ok(event_id)
     }
 
     /// Delete an event by its ID. Returns true if a row was deleted.

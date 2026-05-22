@@ -11,6 +11,7 @@ use std::sync::Mutex;
 pub struct Db {
     pub(crate) conn: Mutex<Connection>,
     pub(crate) path: PathBuf,
+    pub config: traz_core::TrazConfig,
 }
 
 impl Db {
@@ -31,9 +32,11 @@ impl Db {
         )
         .context("Failed to set SQLite pragmas")?;
 
+        let config = traz_core::TrazConfig::resolve();
         let db = Self {
             conn: Mutex::new(conn),
             path: db_path.to_path_buf(),
+            config,
         };
         db.migrate().context("Failed to run database migrations")?;
 
@@ -57,7 +60,7 @@ impl Db {
         }
     }
 
-    fn migrate(&self) -> Result<()> {
+    pub fn migrate(&self) -> Result<()> {
         let conn = self.lock_conn();
 
         // Step 1: Create table if completely new
@@ -91,6 +94,18 @@ impl Db {
             "CREATE INDEX IF NOT EXISTS idx_events_tool      ON events(tool);
              CREATE INDEX IF NOT EXISTS idx_events_type      ON events(type);
              CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);",
+        )?;
+
+        // Step 4: Create event_embeddings table
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS event_embeddings (
+                id INTEGER PRIMARY KEY,
+                event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                vector BLOB NOT NULL,
+                model_version TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_embeddings_event_id ON event_embeddings(event_id);"
         )?;
 
         Ok(())

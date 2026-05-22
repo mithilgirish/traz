@@ -1,0 +1,12 @@
+[package]
+name = "traz-embeddings"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Embedding generation engine for traz"
+
+[dependencies]
+fastembed = { workspace = true }
+dirs = { workspace = true }
+anyhow = { workspace = true }

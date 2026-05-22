@@ -36,6 +36,12 @@ mod tests {
         let db = Db {
             conn: Mutex::new(conn),
             path: PathBuf::from(":memory:"),
+            config: traz_core::TrazConfig {
+                db_path: PathBuf::from(":memory:"),
+                api_port: 4000,
+                embeddings_enabled: false,
+                embeddings_model_path: None,
+            },
         };
         db.migrate_for_test().unwrap();
         db
@@ -273,5 +279,52 @@ mod tests {
 
         let events = db.get_recent_events(100).unwrap();
         assert_eq!(events.len(), 5);
+    }
+
+    #[test]
+    fn test_count_events_after() {
+        let db = test_db();
+        let id1 = db.insert_event(&sample_event("t", "f", "1")).unwrap();
+        let id2 = db.insert_event(&sample_event("t", "f", "2")).unwrap();
+        let id3 = db.insert_event(&sample_event("t", "f", "3")).unwrap();
+
+        assert_eq!(db.count_events_after(id1).unwrap(), 2);
+        assert_eq!(db.count_events_after(id2).unwrap(), 1);
+        assert_eq!(db.count_events_after(id3).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_semantic_search() {
+        let conn = Connection::open_in_memory().unwrap();
+        let db = Db {
+            conn: Mutex::new(conn),
+            path: PathBuf::from(":memory:"),
+            config: traz_core::TrazConfig {
+                db_path: PathBuf::from(":memory:"),
+                api_port: 4000,
+                embeddings_enabled: true,
+                embeddings_model_path: None,
+            },
+        };
+        db.migrate().unwrap();
+
+        let e1 = Event::new("t1".into(), "f1".into(), "Authentication bug fix in backend".into(), Some("Fixed database reconnect during login session".into()), None, None);
+        let e2 = Event::new("t2".into(), "f2".into(), "Frontend CSS layout redesign".into(), Some("Re-aligned flex box grid items to center".into()), None, None);
+
+        let id1 = db.insert_event(&e1).unwrap();
+        let id2 = db.insert_event(&e2).unwrap();
+
+        // Search for something related to auth
+        let results = db.semantic_search("login database", 10).unwrap();
+        
+        // Assert we got results back
+        assert!(!results.is_empty());
+        // e1 should be ranked first because it contains "login" and "database reconnect"
+        assert_eq!(results[0].0.id, Some(id1));
+        
+        // Search for something related to styling
+        let results_css = db.semantic_search("css flexbox layout alignment", 10).unwrap();
+        assert!(!results_css.is_empty());
+        assert_eq!(results_css[0].0.id, Some(id2));
     }
 }

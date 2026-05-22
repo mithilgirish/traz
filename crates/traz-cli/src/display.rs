@@ -26,7 +26,7 @@ const YELLOW_RAW: &str = "\x1b[33m";
 const MAGENTA_RAW: &str = "\x1b[35m";
 const BLUE_RAW: &str = "\x1b[34m";
 
-fn get_colors() -> (
+pub fn get_colors() -> (
     &'static str,
     &'static str,
     &'static str,
@@ -48,7 +48,7 @@ fn get_colors() -> (
     )
 }
 
-fn relative_time(then: &chrono::DateTime<chrono::Utc>) -> String {
+pub fn relative_time(then: &chrono::DateTime<chrono::Utc>) -> String {
     let delta = chrono::Utc::now().signed_duration_since(*then);
 
     if delta.num_seconds() < 60 {
@@ -62,7 +62,7 @@ fn relative_time(then: &chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
-fn type_icon(event_type: &str) -> &'static str {
+pub fn type_icon(event_type: &str) -> &'static str {
     match event_type {
         "bug_fix" => "🐛",
         "feature" => "✨",
@@ -93,15 +93,15 @@ pub fn print_event(event: &Event) {
     let rel = relative_time(&event.timestamp);
 
     println!(
-        "  {icon} {BOLD}{}{RESET}  {DIM}[{CYAN}{}{RESET}{DIM} · {}{DIM}]{RESET}",
+        "  {CYAN}◆{RESET}  {icon}  {BOLD}{}{RESET}  {DIM}[{CYAN}{}{RESET}{DIM} · {}{DIM}]{RESET}",
         event.title, event.tool, rel,
     );
-    println!("    {MAGENTA}{}{RESET}", event.event_type);
+    println!("  {DIM}│{RESET}  {DIM}type:{RESET}  {MAGENTA}{}{RESET}", event.event_type);
 
     if let Some(ref summary) = event.summary {
         // Only show the first line in timeline view
         let first_line = summary.lines().next().unwrap_or(summary);
-        println!("    {DIM}{}{RESET}", first_line);
+        println!("  {DIM}│{RESET}  {DIM}info:{RESET}  {first_line}");
     }
 
     if let Some(ref files) = event.files {
@@ -111,7 +111,7 @@ pub fn print_event(event: &Event) {
                 .map(|f| format!("{BLUE}{f}{RESET}"))
                 .collect::<Vec<_>>()
                 .join(&format!("{DIM}, {RESET}"));
-            println!("    {DIM}files:{RESET} {}", file_list);
+            println!("  {DIM}│{RESET}  {DIM}files:{RESET} {}", file_list);
         }
     }
 
@@ -122,13 +122,13 @@ pub fn print_event(event: &Event) {
                 .map(|t| format!("#{t}"))
                 .collect::<Vec<_>>()
                 .join(" ");
-            println!("    {DIM}{tag_str}{RESET}");
+            println!("  {DIM}│{RESET}  {DIM}tags:{RESET}  {YELLOW}{tag_str}{RESET}");
         }
     }
 
     if let Some(ref diff) = event.diff {
         let line_count = diff.lines().count();
-        println!("    {DIM}diff:{RESET} {GREEN}+{} lines{RESET}", line_count);
+        println!("  {DIM}│{RESET}  {DIM}diff:{RESET}  {GREEN}+{} lines{RESET}", line_count);
     }
 }
 
@@ -146,35 +146,30 @@ pub fn print_event_detail(event: &Event) {
     let ts = event.timestamp.format("%Y-%m-%d %H:%M:%S UTC");
 
     println!();
-    println!("  {BOLD}{icon} {}{RESET}", event.title);
-    println!("  {DIM}────────────────────────────────────────{RESET}");
-
-    if let Some(id) = event.id {
-        println!("  {DIM}ID:{RESET}        {CYAN}#{}{RESET}", id);
-    }
-    println!("  {DIM}UUID:{RESET}      {DIM}{}{RESET}", event.uuid);
-    println!("  {DIM}Tool:{RESET}      {CYAN}{}{RESET}", event.tool);
-    println!("  {DIM}Type:{RESET}      {MAGENTA}{}{RESET}", event.event_type);
-    println!("  {DIM}When:{RESET}      {} {DIM}({}){RESET}", ts, rel);
+    println!("  {CYAN}◆{RESET}  {BOLD}{icon} {}{RESET}", event.title);
+    println!("  {DIM}├──{RESET} {DIM}ID:{RESET}        {CYAN}#{}{RESET}", event.id.unwrap_or(0));
+    println!("  {DIM}├──{RESET} {DIM}UUID:{RESET}      {DIM}{}{RESET}", event.uuid);
+    println!("  {DIM}├──{RESET} {DIM}Tool:{RESET}      {CYAN}{}{RESET}", event.tool);
+    println!("  {DIM}├──{RESET} {DIM}Type:{RESET}      {MAGENTA}{}{RESET}", event.event_type);
+    println!("  {DIM}├──{RESET} {DIM}When:{RESET}      {} {DIM}({}){RESET}", ts, rel);
 
     if let Some(ref session) = event.session_id {
-        println!("  {DIM}Session:{RESET}   {YELLOW}{}{RESET}", session);
+        println!("  {DIM}├──{RESET} {DIM}Session:{RESET}   {YELLOW}{}{RESET}", session);
     }
 
     if let Some(ref summary) = event.summary {
-        println!();
-        println!("  {BOLD}Summary{RESET}");
+        println!("  {DIM}├──{RESET} {BOLD}Summary{RESET}");
         for line in summary.lines() {
-            println!("  {DIM}{}{RESET}", line);
+            println!("  {DIM}│{RESET}    {}", line);
         }
     }
 
     if let Some(ref files) = event.files {
         if !files.is_empty() {
-            println!();
-            println!("  {BOLD}Files{RESET}");
-            for f in files {
-                println!("  {BLUE}  {f}{RESET}");
+            println!("  {DIM}├──{RESET} {BOLD}Changed Files{RESET}");
+            for (idx, f) in files.iter().enumerate() {
+                let guide = if idx == files.len() - 1 { "  │    └── " } else { "  │    ├── " };
+                println!("{}{BLUE}{}{RESET}", guide, f);
             }
         }
     }
@@ -182,28 +177,26 @@ pub fn print_event_detail(event: &Event) {
     if let Some(ref tags) = event.tags {
         if !tags.is_empty() {
             let tag_str = tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join(" ");
-            println!();
-            println!("  {DIM}Tags:{RESET} {YELLOW}{tag_str}{RESET}");
+            println!("  {DIM}├──{RESET} {DIM}Tags:{RESET}     {YELLOW}{tag_str}{RESET}");
         }
     }
 
     if let Some(ref diff) = event.diff {
         let line_count = diff.lines().count();
-        println!();
-        println!("  {DIM}Diff:{RESET} {GREEN}+{} lines{RESET} {DIM}(use `traz diff {}` to view){RESET}",
+        println!("  {DIM}├──{RESET} {DIM}Diff:{RESET}     {GREEN}+{} lines{RESET} {DIM}(use `traz diff {}` to view){RESET}",
             line_count, event.id.unwrap_or(0));
     }
 
     if let Some(ref metadata) = event.metadata {
-        println!();
-        println!("  {BOLD}Metadata{RESET}");
+        println!("  {DIM}└──{RESET} {BOLD}Metadata{RESET}");
         if let Ok(pretty) = serde_json::to_string_pretty(metadata) {
             for line in pretty.lines() {
-                println!("  {DIM}{}{RESET}", line);
+                println!("       {DIM}{}{RESET}", line);
             }
         }
+    } else {
+        println!("  {DIM}└──{RESET} {DIM}Metadata: (none){RESET}");
     }
-
     println!();
 }
 

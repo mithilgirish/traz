@@ -22,3 +22,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Local Development / Tooling
+.antigravitycli/
+.dist/
+test_project/
