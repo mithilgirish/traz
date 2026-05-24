@@ -1,12 +1,12 @@
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
-static EMBEDDER: OnceLock<TextEmbedding> = OnceLock::new();
+static EMBEDDER: OnceLock<Mutex<TextEmbedding>> = OnceLock::new();
 
 /// Retrieve or initialize the shared fastembed TextEmbedding model.
 /// Downloads the AllMiniLML6V2 model to `~/.local/share/traz/models/` if not present.
-pub fn get_embedder() -> Result<&'static TextEmbedding> {
+pub fn get_embedder() -> Result<&'static Mutex<TextEmbedding>> {
     if let Some(emb) = EMBEDDER.get() {
         return Ok(emb);
     }
@@ -15,21 +15,19 @@ pub fn get_embedder() -> Result<&'static TextEmbedding> {
     cache_dir.push("models");
     std::fs::create_dir_all(&cache_dir)?;
 
-    let options = InitOptions {
-        model_name: EmbeddingModel::AllMiniLML6V2,
-        cache_dir,
-        show_download_progress: false,
-        ..Default::default()
-    };
+    let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2)
+        .with_cache_dir(cache_dir)
+        .with_show_download_progress(false);
 
     let embedder = TextEmbedding::try_new(options)?;
-    let _ = EMBEDDER.set(embedder);
+    let _ = EMBEDDER.set(Mutex::new(embedder));
     Ok(EMBEDDER.get().unwrap())
 }
 
 /// Generate a vector embedding for a single string.
 pub fn embed_text(text: &str) -> Result<Vec<f32>> {
-    let embedder = get_embedder()?;
+    let embedder_mutex = get_embedder()?;
+    let mut embedder = embedder_mutex.lock().unwrap();
     let embeddings = embedder.embed(vec![text], None)?;
     if let Some(embedding) = embeddings.into_iter().next() {
         Ok(embedding)

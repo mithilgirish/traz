@@ -103,6 +103,31 @@ Fixed JWT refresh race condition
 Updated auth middleware retry logic
 ```
 
+### Semantic Search
+
+`traz` automatically generates local embeddings for your events using ONNX and `fastembed-rs`. 
+This allows you to find contextually relevant history even if you don't use the exact keywords.
+
+```bash
+$ traz search "database connection pooling"
+
+[semantic search] Search: "database connection pooling" (2 results)
+─────────────────────────────────────────────
+ 1. Added pg_bouncer for connections (72%)
+    Tool: cursor       Type: commit     Age: 3d ago     Tags: #db
+
+ 2. Re-architected connection lifecycle (64%)
+    Tool: gemini       Type: refactor   Age: 1w ago     Tags: #db #performance
+```
+
+### Backfill Missing Embeddings
+
+If you imported old events or just added the embeddings feature, you can generate missing vectors in bulk:
+
+```bash
+$ traz backfill-embeddings
+```
+
 ### View a workflow timeline
 
 ```bash
@@ -193,13 +218,13 @@ Point your AI tool at `localhost:7474` and it gains access to your full engineer
 - [x] MCP server
 - [x] Automatic git integration
 - [x] Tool adapters
+- [x] Semantic search with local embeddings
+- [x] Local vector indexing
+- [x] AI trace visualization (TUI)
 
 **Future**
-- [ ] Semantic search with local embeddings
 - [ ] Context compression for long-running projects
 - [ ] Workflow snapshots
-- [ ] AI trace visualization
-- [ ] Local vector indexing
 - [ ] VSCode extension
 
 ---
