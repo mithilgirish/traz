@@ -8,5 +8,6 @@ description = "Embedding generation engine for traz"
 
 [dependencies]
 fastembed = { workspace = true }
+ort = { workspace = true }
 dirs = { workspace = true }
 anyhow = { workspace = true }
