@@ -104,19 +104,19 @@ pub fn get_uncommitted_diff() -> Result<Option<String>> {
             .output()
             .context("Failed to run git diff fallback")?;
         if init_output.status.success() {
-            let s = String::from_utf8_lossy(&init_output.stdout).trim().to_string();
-            if s.is_empty() { return Ok(None); }
+            let s = String::from_utf8_lossy(&init_output.stdout)
+                .trim()
+                .to_string();
+            if s.is_empty() {
+                return Ok(None);
+            }
             return Ok(Some(s));
         }
         return Ok(None);
     }
 
     let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(s))
-    }
+    if s.is_empty() { Ok(None) } else { Ok(Some(s)) }
 }
 
 /// Get the name of the current git branch.

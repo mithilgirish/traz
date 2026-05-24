@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table, TableState, Wrap};
-use ratatui::Frame;
 
 use crate::app::{App, AppMode, ConfirmAction};
 use crate::diff::render_diff;
@@ -67,48 +67,88 @@ impl Theme {
 
     pub fn dark() -> Self {
         Self {
-            bg_dark: Color::Rgb(17, 17, 27),         // Mocha deep background
-            panel_bg: Color::Rgb(30, 30, 46),       // Mocha gray panel
-            sel_bg: Color::Rgb(49, 50, 68),         // Mocha surface highlight
-            text_muted: Color::Rgb(137, 143, 173),  // Mocha muted text
+            bg_dark: Color::Rgb(17, 17, 27),       // Mocha deep background
+            panel_bg: Color::Rgb(30, 30, 46),      // Mocha gray panel
+            sel_bg: Color::Rgb(49, 50, 68),        // Mocha surface highlight
+            text_muted: Color::Rgb(137, 143, 173), // Mocha muted text
             text_main: Color::White,
-            blue: Color::Rgb(137, 180, 250),       // Mocha pastel blue
-            green: Color::Rgb(166, 227, 161),      // Mocha pastel green
-            pink: Color::Rgb(245, 194, 231),       // Mocha pastel pink
-            yellow: Color::Rgb(249, 226, 175),     // Mocha pastel yellow
-            red: Color::Rgb(243, 139, 168),        // Mocha pastel red
+            blue: Color::Rgb(137, 180, 250),   // Mocha pastel blue
+            green: Color::Rgb(166, 227, 161),  // Mocha pastel green
+            pink: Color::Rgb(245, 194, 231),   // Mocha pastel pink
+            yellow: Color::Rgb(249, 226, 175), // Mocha pastel yellow
+            red: Color::Rgb(243, 139, 168),    // Mocha pastel red
         }
     }
 
     pub fn light() -> Self {
         Self {
-            bg_dark: Color::Rgb(239, 241, 245),     // Latte off-white
-            panel_bg: Color::Rgb(230, 233, 240),    // Latte light gray
-            sel_bg: Color::Rgb(204, 208, 218),      // Latte surface highlight
-            text_muted: Color::Rgb(108, 111, 133),  // Latte darker muted gray
-            text_main: Color::Rgb(76, 79, 105),     // Latte dark gray text
-            blue: Color::Rgb(30, 102, 245),         // Latte rich blue
-            green: Color::Rgb(64, 160, 43),         // Latte rich green
-            pink: Color::Rgb(230, 72, 116),         // Latte rich pink
-            yellow: Color::Rgb(223, 142, 29),       // Latte rich yellow
-            red: Color::Rgb(210, 15, 57),           // Latte rich red
+            bg_dark: Color::Rgb(239, 241, 245),    // Latte off-white
+            panel_bg: Color::Rgb(230, 233, 240),   // Latte light gray
+            sel_bg: Color::Rgb(204, 208, 218),     // Latte surface highlight
+            text_muted: Color::Rgb(108, 111, 133), // Latte darker muted gray
+            text_main: Color::Rgb(76, 79, 105),    // Latte dark gray text
+            blue: Color::Rgb(30, 102, 245),        // Latte rich blue
+            green: Color::Rgb(64, 160, 43),        // Latte rich green
+            pink: Color::Rgb(230, 72, 116),        // Latte rich pink
+            yellow: Color::Rgb(223, 142, 29),      // Latte rich yellow
+            red: Color::Rgb(210, 15, 57),          // Latte rich red
         }
     }
 
     pub fn load_from_file(path: &std::path::Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         let parsed: serde_json::Value = serde_json::from_str(&content)?;
-        
-        let bg_dark = parsed.get("bg_dark").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::Rgb(17, 17, 27));
-        let panel_bg = parsed.get("panel_bg").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::Rgb(30, 30, 46));
-        let sel_bg = parsed.get("sel_bg").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::Rgb(49, 50, 68));
-        let text_muted = parsed.get("text_muted").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::Rgb(137, 143, 173));
-        let text_main = parsed.get("text_main").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::White);
-        let blue = parsed.get("blue").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::Rgb(137, 180, 250));
-        let green = parsed.get("green").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::Rgb(166, 227, 161));
-        let pink = parsed.get("pink").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::Rgb(245, 194, 231));
-        let yellow = parsed.get("yellow").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::Rgb(249, 226, 175));
-        let red = parsed.get("red").and_then(|v| v.as_str()).and_then(parse_hex_color).unwrap_or(Color::Rgb(243, 139, 168));
+
+        let bg_dark = parsed
+            .get("bg_dark")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::Rgb(17, 17, 27));
+        let panel_bg = parsed
+            .get("panel_bg")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::Rgb(30, 30, 46));
+        let sel_bg = parsed
+            .get("sel_bg")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::Rgb(49, 50, 68));
+        let text_muted = parsed
+            .get("text_muted")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::Rgb(137, 143, 173));
+        let text_main = parsed
+            .get("text_main")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::White);
+        let blue = parsed
+            .get("blue")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::Rgb(137, 180, 250));
+        let green = parsed
+            .get("green")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::Rgb(166, 227, 161));
+        let pink = parsed
+            .get("pink")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::Rgb(245, 194, 231));
+        let yellow = parsed
+            .get("yellow")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::Rgb(249, 226, 175));
+        let red = parsed
+            .get("red")
+            .and_then(|v| v.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(Color::Rgb(243, 139, 168));
 
         Ok(Self {
             bg_dark,
@@ -141,17 +181,32 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     // 1. Draw Sleek Header Title Bar (Dual-Tone Powerline wedge)
     let total_count = app.db.count_events().unwrap_or(app.all_events.len() as i64);
-    
+
     let title_spans = vec![
-        Span::styled(" TRAZ ", Style::default().bg(theme.blue).fg(theme.bg_dark).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " TRAZ ",
+            Style::default()
+                .bg(theme.blue)
+                .fg(theme.bg_dark)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("", Style::default().bg(theme.panel_bg).fg(theme.blue)),
-        Span::styled("  Timeline Explorer  ", Style::default().bg(theme.panel_bg).fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "  Timeline Explorer  ",
+            Style::default()
+                .bg(theme.panel_bg)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("", Style::default().bg(theme.bg_dark).fg(theme.panel_bg)),
-        Span::styled(format!("  {} events captured ", total_count), Style::default().fg(theme.text_muted)),
+        Span::styled(
+            format!("  {} events captured ", total_count),
+            Style::default().fg(theme.text_muted),
+        ),
     ];
-    
-    let title_bar = Paragraph::new(Line::from(title_spans))
-        .style(Style::default().bg(theme.bg_dark));
+
+    let title_bar =
+        Paragraph::new(Line::from(title_spans)).style(Style::default().bg(theme.bg_dark));
     f.render_widget(title_bar, chunks[0]);
 
     // 2. Draw Main workspace area based on mode
@@ -211,7 +266,11 @@ fn draw_list_view(f: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
         };
         let p = Paragraph::new(empty_msg)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC));
+            .style(
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::ITALIC),
+            );
         f.render_widget(p, area);
         return;
     }
@@ -219,7 +278,7 @@ fn draw_list_view(f: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
     let mut rows = Vec::new();
     for (i, event) in app.events.iter().enumerate() {
         let is_selected = i == app.selected;
-        
+
         let mut row_cells = Vec::new();
 
         // Map icons and colors to event categories
@@ -234,8 +293,12 @@ fn draw_list_view(f: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
 
         // 1. Selection and Index Gutter Column
         let select_sym = if is_selected { "▍" } else { " " };
-        let select_color = if is_selected { theme.blue } else { theme.text_muted };
-        
+        let select_color = if is_selected {
+            theme.blue
+        } else {
+            theme.text_muted
+        };
+
         let num_text = if app.show_gutters {
             format!("{} {:02} ", select_sym, i + 1)
         } else {
@@ -243,7 +306,9 @@ fn draw_list_view(f: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
         };
         let num_span = Span::styled(
             num_text,
-            Style::default().fg(select_color).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(select_color)
+                .add_modifier(Modifier::BOLD),
         );
         row_cells.push(Line::from(num_span));
 
@@ -260,7 +325,10 @@ fn draw_list_view(f: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
             };
             row_cells.push(Line::from(vec![
                 Span::styled(line_sym, Style::default().fg(theme.text_muted)),
-                Span::styled(bullet_sym, Style::default().fg(type_color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    bullet_sym,
+                    Style::default().fg(type_color).add_modifier(Modifier::BOLD),
+                ),
             ]));
         } else {
             row_cells.push(Line::raw(""));
@@ -283,18 +351,26 @@ fn draw_list_view(f: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
 
         // 5. Time Column (or Score if searching)
         let relative = relative_time(&event.timestamp);
-        let time_span = Span::styled(
-            relative,
-            Style::default().fg(theme.text_muted),
-        );
+        let time_span = Span::styled(relative, Style::default().fg(theme.text_muted));
         row_cells.push(Line::from(time_span));
 
         // 6. Score Column (if available)
         if !app.search_scores.is_empty() {
             let score = app.search_scores.get(i).copied().unwrap_or(0.0);
             let score_pct = format!(" {:.0}% ", score * 100.0);
-            let score_color = if score > 0.8 { theme.green } else if score > 0.5 { theme.yellow } else { theme.text_muted };
-            row_cells.push(Line::from(Span::styled(score_pct, Style::default().fg(score_color).add_modifier(Modifier::BOLD))));
+            let score_color = if score > 0.8 {
+                theme.green
+            } else if score > 0.5 {
+                theme.yellow
+            } else {
+                theme.text_muted
+            };
+            row_cells.push(Line::from(Span::styled(
+                score_pct,
+                Style::default()
+                    .fg(score_color)
+                    .add_modifier(Modifier::BOLD),
+            )));
         }
 
         let row_style = if is_selected {
@@ -355,9 +431,12 @@ fn draw_detail_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: 
     let event = match event_opt {
         Some(e) => e,
         None => {
-            let p = Paragraph::new(format!("Error: Event #{} is not present in local memory.", id))
-                .block(block)
-                .style(Style::default().fg(theme.red));
+            let p = Paragraph::new(format!(
+                "Error: Event #{} is not present in local memory.",
+                id
+            ))
+            .block(block)
+            .style(Style::default().fg(theme.red));
             f.render_widget(p, area);
             return;
         }
@@ -368,20 +447,50 @@ fn draw_detail_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: 
 
     // 1. Premium Dual-Tone Header Block
     let badge_title = vec![
-        Span::styled(" TITLE ", Style::default().bg(theme.blue).fg(theme.bg_dark).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  {}  ", event.title), Style::default().bg(theme.sel_bg).fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " TITLE ",
+            Style::default()
+                .bg(theme.blue)
+                .fg(theme.bg_dark)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  {}  ", event.title),
+            Style::default()
+                .bg(theme.sel_bg)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
     ];
     lines.push(Line::from(badge_title));
     lines.push(Line::raw(""));
 
     // 2. Structured Metadata Badges
     let badge_tool = vec![
-        Span::styled(" TOOL ", Style::default().bg(theme.blue).fg(theme.bg_dark).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {} ", event.tool), Style::default().bg(theme.sel_bg).fg(Color::White)),
+        Span::styled(
+            " TOOL ",
+            Style::default()
+                .bg(theme.blue)
+                .fg(theme.bg_dark)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {} ", event.tool),
+            Style::default().bg(theme.sel_bg).fg(Color::White),
+        ),
     ];
     let badge_type = vec![
-        Span::styled(" TYPE ", Style::default().bg(theme.pink).fg(theme.bg_dark).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {} ", event.event_type), Style::default().bg(theme.sel_bg).fg(Color::White)),
+        Span::styled(
+            " TYPE ",
+            Style::default()
+                .bg(theme.pink)
+                .fg(theme.bg_dark)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {} ", event.event_type),
+            Style::default().bg(theme.sel_bg).fg(Color::White),
+        ),
     ];
     let mut badge_line = vec![Span::raw("  ")];
     badge_line.extend(badge_tool);
@@ -389,18 +498,44 @@ fn draw_detail_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: 
     badge_line.extend(badge_type);
     lines.push(Line::from(badge_line));
 
-    let formatted_time = event.created_at.unwrap_or(event.timestamp).format("%b %d %Y %H:%M").to_string();
+    let formatted_time = event
+        .created_at
+        .unwrap_or(event.timestamp)
+        .format("%b %d %Y %H:%M")
+        .to_string();
     let badge_time = vec![
-        Span::styled(" TIME ", Style::default().bg(theme.text_muted).fg(theme.bg_dark).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {} ", formatted_time), Style::default().bg(theme.sel_bg).fg(Color::White)),
+        Span::styled(
+            " TIME ",
+            Style::default()
+                .bg(theme.text_muted)
+                .fg(theme.bg_dark)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {} ", formatted_time),
+            Style::default().bg(theme.sel_bg).fg(Color::White),
+        ),
     ];
     let tags_str = match &event.tags {
-        Some(tags) if !tags.is_empty() => tags.iter().map(|t| format!("#{}", t)).collect::<Vec<_>>().join(" "),
+        Some(tags) if !tags.is_empty() => tags
+            .iter()
+            .map(|t| format!("#{}", t))
+            .collect::<Vec<_>>()
+            .join(" "),
         _ => "none".to_string(),
     };
     let badge_tags = vec![
-        Span::styled(" TAGS ", Style::default().bg(theme.yellow).fg(theme.bg_dark).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {} ", tags_str), Style::default().bg(theme.sel_bg).fg(Color::White)),
+        Span::styled(
+            " TAGS ",
+            Style::default()
+                .bg(theme.yellow)
+                .fg(theme.bg_dark)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {} ", tags_str),
+            Style::default().bg(theme.sel_bg).fg(Color::White),
+        ),
     ];
     let mut badge_line2 = vec![Span::raw("  ")];
     badge_line2.extend(badge_time);
@@ -410,13 +545,27 @@ fn draw_detail_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: 
     lines.push(Line::raw(""));
 
     // 3. Changed Files Indent Tree
-    lines.push(Line::from(Span::styled("  📁 CHANGED FILES", Style::default().fg(theme.text_muted).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from(Span::styled(
+        "  📁 CHANGED FILES",
+        Style::default()
+            .fg(theme.text_muted)
+            .add_modifier(Modifier::BOLD),
+    )));
     if let Some(files) = &event.files {
         if files.is_empty() {
-            lines.push(Line::from(Span::styled("     (none)", Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC))));
+            lines.push(Line::from(Span::styled(
+                "     (none)",
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::ITALIC),
+            )));
         } else {
             for (idx, f) in files.iter().enumerate() {
-                let guide = if idx == files.len() - 1 { "     └── " } else { "     ├── " };
+                let guide = if idx == files.len() - 1 {
+                    "     └── "
+                } else {
+                    "     ├── "
+                };
                 lines.push(Line::from(vec![
                     Span::styled(guide, Style::default().fg(theme.text_muted)),
                     Span::styled(f, Style::default().fg(theme.green)),
@@ -424,19 +573,31 @@ fn draw_detail_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: 
             }
         }
     } else {
-        lines.push(Line::from(Span::styled("     (none)", Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC))));
+        lines.push(Line::from(Span::styled(
+            "     (none)",
+            Style::default()
+                .fg(theme.text_muted)
+                .add_modifier(Modifier::ITALIC),
+        )));
     }
 
     // Divider Line
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         format!("  {}", "━".repeat(area.width.saturating_sub(6) as usize)),
-        Style::default().fg(theme.text_muted).add_modifier(Modifier::DIM),
+        Style::default()
+            .fg(theme.text_muted)
+            .add_modifier(Modifier::DIM),
     )));
     lines.push(Line::raw(""));
 
     // 4. Blockquote Summary Pane
-    lines.push(Line::from(Span::styled("  📝 SUMMARY DESCRIPTION", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from(Span::styled(
+        "  📝 SUMMARY DESCRIPTION",
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    )));
     if let Some(summary) = &event.summary {
         for l in summary.lines() {
             lines.push(Line::from(vec![
@@ -445,35 +606,66 @@ fn draw_detail_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: 
             ]));
         }
     } else {
-        lines.push(Line::from(Span::styled("     │  (no description provided for this event)", Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC))));
+        lines.push(Line::from(Span::styled(
+            "     │  (no description provided for this event)",
+            Style::default()
+                .fg(theme.text_muted)
+                .add_modifier(Modifier::ITALIC),
+        )));
     }
 
     // 5. Compilation Session tree connections
     if event.event_type == "compilation_session" {
         lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled("  ⚡ COMPILATION ATTRIBUTES", Style::default().fg(theme.yellow).add_modifier(Modifier::BOLD))));
-        
-        if let Some(meta) = &event.metadata {
-            let attempt = meta.get("attempt_count").and_then(|v| v.as_i64()).map(|n| n.to_string()).unwrap_or_else(|| "—".to_string());
-            let status = meta.get("status").and_then(|v| v.as_str()).unwrap_or("—");
-            let started = meta.get("started_at").and_then(|v| v.as_str()).unwrap_or("—");
-            let resolved = meta.get("resolved_at").and_then(|v| v.as_str()).unwrap_or("—");
+        lines.push(Line::from(Span::styled(
+            "  ⚡ COMPILATION ATTRIBUTES",
+            Style::default()
+                .fg(theme.yellow)
+                .add_modifier(Modifier::BOLD),
+        )));
 
-            let status_color = if status.to_lowercase() == "success" || status.to_lowercase() == "resolved" {
-                theme.green
-            } else if status.to_lowercase() == "failed" {
-                theme.red
-            } else {
-                theme.yellow
-            };
+        if let Some(meta) = &event.metadata {
+            let attempt = meta
+                .get("attempt_count")
+                .and_then(|v| v.as_i64())
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "—".to_string());
+            let status = meta.get("status").and_then(|v| v.as_str()).unwrap_or("—");
+            let started = meta
+                .get("started_at")
+                .and_then(|v| v.as_str())
+                .unwrap_or("—");
+            let resolved = meta
+                .get("resolved_at")
+                .and_then(|v| v.as_str())
+                .unwrap_or("—");
+
+            let status_color =
+                if status.to_lowercase() == "success" || status.to_lowercase() == "resolved" {
+                    theme.green
+                } else if status.to_lowercase() == "failed" {
+                    theme.red
+                } else {
+                    theme.yellow
+                };
 
             lines.push(Line::from(vec![
                 Span::styled("     ├─ Attempt:   ", Style::default().fg(theme.text_muted)),
-                Span::styled(attempt, Style::default().fg(theme.text_main).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    attempt,
+                    Style::default()
+                        .fg(theme.text_main)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]));
             lines.push(Line::from(vec![
                 Span::styled("     ├─ Status:    ", Style::default().fg(theme.text_muted)),
-                Span::styled(status, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    status,
+                    Style::default()
+                        .fg(status_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]));
             lines.push(Line::from(vec![
                 Span::styled("     ├─ Started:   ", Style::default().fg(theme.text_muted)),
@@ -484,7 +676,10 @@ fn draw_detail_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: 
                 Span::styled(resolved, Style::default().fg(theme.text_main)),
             ]));
         } else {
-            lines.push(Line::from(Span::styled("     (no session metadata details)", Style::default().fg(theme.text_muted))));
+            lines.push(Line::from(Span::styled(
+                "     (no session metadata details)",
+                Style::default().fg(theme.text_muted),
+            )));
         }
     }
 
@@ -492,7 +687,9 @@ fn draw_detail_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: 
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
             "  ℹ  Press [d] to open the code diff for this event.",
-            Style::default().fg(theme.text_muted).add_modifier(Modifier::DIM),
+            Style::default()
+                .fg(theme.text_muted)
+                .add_modifier(Modifier::DIM),
         )));
     }
 
@@ -514,7 +711,10 @@ fn draw_diff_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: Re
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme.yellow))
         .style(Style::default().bg(theme.panel_bg))
-        .title(format!("  diffview ━ {} ", event_opt.map(|e| e.title.as_str()).unwrap_or("diff")));
+        .title(format!(
+            "  diffview ━ {} ",
+            event_opt.map(|e| e.title.as_str()).unwrap_or("diff")
+        ));
 
     let event = match event_opt {
         Some(e) => e,
@@ -533,14 +733,29 @@ fn draw_diff_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: Re
         // Prepend custom vimdiff-like line number gutter with gitgutter symbols
         let mut styled_lines = Vec::new();
         for (idx, line) in diff_lines.into_iter().enumerate() {
-            let line_color = line.spans.first().and_then(|s| s.style.fg).unwrap_or(Color::Reset);
-            
+            let line_color = line
+                .spans
+                .first()
+                .and_then(|s| s.style.fg)
+                .unwrap_or(Color::Reset);
+
             let (status_char, status_style) = if line_color == Color::Green {
-                ("+", Style::default().fg(theme.green).add_modifier(Modifier::BOLD))
+                (
+                    "+",
+                    Style::default()
+                        .fg(theme.green)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else if line_color == Color::Red {
-                ("-", Style::default().fg(theme.red).add_modifier(Modifier::BOLD))
+                (
+                    "-",
+                    Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
+                )
             } else if line_color == Color::Cyan {
-                ("~", Style::default().fg(theme.blue).add_modifier(Modifier::BOLD))
+                (
+                    "~",
+                    Style::default().fg(theme.blue).add_modifier(Modifier::BOLD),
+                )
             } else {
                 (" ", Style::default())
             };
@@ -566,7 +781,11 @@ fn draw_diff_view(f: &mut Frame, app: &mut App, id: i64, theme: &Theme, area: Re
         let p = Paragraph::new("No git patch or unified diff was recorded for this event.")
             .block(block)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC));
+            .style(
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::ITALIC),
+            );
         f.render_widget(p, area);
     }
 }
@@ -587,32 +806,64 @@ fn draw_confirm_popup(f: &mut Frame, app: &App, action: &ConfirmAction, theme: &
 
     match action {
         ConfirmAction::Undo(id) => {
-            let title = app.all_events.iter()
+            let title = app
+                .all_events
+                .iter()
                 .find(|e| e.id == Some(*id))
                 .map(|e| e.title.as_str())
                 .unwrap_or("Unknown event");
-            lines.push(Line::from(format!("   Delete event #{}?", id).white().bold()));
-            lines.push(Line::from(format!("   \"{}\"", title).fg(theme.yellow).italic()));
-            lines.push(Line::from("   This deletion is irreversible.".fg(theme.red)));
+            lines.push(Line::from(
+                format!("   Delete event #{}?", id).white().bold(),
+            ));
+            lines.push(Line::from(
+                format!("   \"{}\"", title).fg(theme.yellow).italic(),
+            ));
+            lines.push(Line::from(
+                "   This deletion is irreversible.".fg(theme.red),
+            ));
         }
         ConfirmAction::Rewind(id) => {
             let count = app.db.count_events_after(*id).unwrap_or(0);
-            lines.push(Line::from(format!("   Rewind history to event #{}?", id).white().bold()));
-            lines.push(Line::from(format!("   This will delete {} future events.", count).fg(theme.red).bold()));
-            lines.push(Line::from("   This modification is irreversible.".fg(theme.red)));
+            lines.push(Line::from(
+                format!("   Rewind history to event #{}?", id)
+                    .white()
+                    .bold(),
+            ));
+            lines.push(Line::from(
+                format!("   This will delete {} future events.", count)
+                    .fg(theme.red)
+                    .bold(),
+            ));
+            lines.push(Line::from(
+                "   This modification is irreversible.".fg(theme.red),
+            ));
         }
         ConfirmAction::Compress => {
-            lines.push(Line::from("   Compress events older than 14 days?".white().bold()));
-            lines.push(Line::from("   Creates an epoch checkpoint summary.".fg(theme.blue)));
-            lines.push(Line::from("   Older entries will be collapsed.".fg(theme.red)));
+            lines.push(Line::from(
+                "   Compress events older than 14 days?".white().bold(),
+            ));
+            lines.push(Line::from(
+                "   Creates an epoch checkpoint summary.".fg(theme.blue),
+            ));
+            lines.push(Line::from(
+                "   Older entries will be collapsed.".fg(theme.red),
+            ));
         }
     }
 
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
-        Span::styled("     [y] ", Style::default().fg(theme.green).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "     [y] ",
+            Style::default()
+                .fg(theme.green)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("confirm         "),
-        Span::styled("[n / Esc] ", Style::default().fg(theme.red).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[n / Esc] ",
+            Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
+        ),
         Span::raw("cancel"),
     ]));
 
@@ -640,20 +891,40 @@ fn draw_settings_popup(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         crate::app::ThemeOption::Custom => "🎨 Custom (theme.json)",
     };
 
-    let settings_items = vec![
+    let settings_items = [
         ("Theme Palette", theme_val),
-        ("Timeline Connection Trees", if app.show_timeline { "✓ Connected" } else { "✗ Disabled" }),
-        ("Line Numbering Gutters", if app.show_gutters { "✓ Active" } else { "✗ Hidden" }),
+        (
+            "Timeline Connection Trees",
+            if app.show_timeline {
+                "✓ Connected"
+            } else {
+                "✗ Disabled"
+            },
+        ),
+        (
+            "Line Numbering Gutters",
+            if app.show_gutters {
+                "✓ Active"
+            } else {
+                "✗ Hidden"
+            },
+        ),
     ];
 
     for (idx, (label, val)) in settings_items.iter().enumerate() {
         let is_selected = idx == app.selected_setting;
-        
+
         let indicator = if is_selected { " ❯ " } else { "   " };
-        let item_color = if is_selected { theme.pink } else { theme.text_muted };
-        
+        let item_color = if is_selected {
+            theme.pink
+        } else {
+            theme.text_muted
+        };
+
         let label_style = if is_selected {
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme.text_main)
         };
@@ -669,7 +940,10 @@ fn draw_settings_popup(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
 
         lines.push(
             Line::from(vec![
-                Span::styled(indicator, Style::default().fg(item_color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    indicator,
+                    Style::default().fg(item_color).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(format!(" {:<30}", label), label_style),
                 Span::styled(format!(" [ {} ] ", val), val_style),
             ])
@@ -680,7 +954,9 @@ fn draw_settings_popup(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "    j/k Navigate  •  Space/Enter Toggle  •  Esc Save & Close",
-        Style::default().fg(theme.text_muted).add_modifier(Modifier::DIM),
+        Style::default()
+            .fg(theme.text_muted)
+            .add_modifier(Modifier::DIM),
     )));
 
     let p = Paragraph::new(lines).block(popup_block);
@@ -712,10 +988,7 @@ fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
 fn draw_status_bar(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     let status_layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(0),
-            Constraint::Length(35),
-        ])
+        .constraints([Constraint::Min(0), Constraint::Length(35)])
         .split(area);
 
     // Left status panel (Workspace context, modes, messages)
@@ -732,25 +1005,52 @@ fn draw_status_bar(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
 
     left_spans.push(Span::styled(
         mode_lbl,
-        Style::default().bg(mode_color).fg(theme.bg_dark).add_modifier(Modifier::BOLD),
+        Style::default()
+            .bg(mode_color)
+            .fg(theme.bg_dark)
+            .add_modifier(Modifier::BOLD),
     ));
 
     // Powerline solid wedge from mode label to panel segment
-    left_spans.push(Span::styled("", Style::default().bg(theme.panel_bg).fg(mode_color)));
+    left_spans.push(Span::styled(
+        "",
+        Style::default().bg(theme.panel_bg).fg(mode_color),
+    ));
 
     // Database segment
-    left_spans.push(Span::styled(" 📁 traz.db ", Style::default().bg(theme.panel_bg).fg(Color::White).add_modifier(Modifier::BOLD)));
-    left_spans.push(Span::styled("", Style::default().bg(theme.bg_dark).fg(theme.panel_bg)));
+    left_spans.push(Span::styled(
+        " 📁 traz.db ",
+        Style::default()
+            .bg(theme.panel_bg)
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    ));
+    left_spans.push(Span::styled(
+        "",
+        Style::default().bg(theme.bg_dark).fg(theme.panel_bg),
+    ));
 
     // Search query or context message
     if app.mode == AppMode::Search {
-        left_spans.push(Span::styled("  /", Style::default().fg(theme.green).add_modifier(Modifier::BOLD)));
-        left_spans.push(Span::styled(&app.search_query, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)));
+        left_spans.push(Span::styled(
+            "  /",
+            Style::default()
+                .fg(theme.green)
+                .add_modifier(Modifier::BOLD),
+        ));
+        left_spans.push(Span::styled(
+            &app.search_query,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ));
         left_spans.push(Span::styled("█", Style::default().fg(theme.green)));
     } else if let Some(status_msg) = &app.status_message {
         left_spans.push(Span::styled(
             format!("  {}", status_msg),
-            Style::default().fg(theme.green).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.green)
+                .add_modifier(Modifier::BOLD),
         ));
     } else {
         let selection_lbl = if !app.events.is_empty() {
@@ -758,11 +1058,16 @@ fn draw_status_bar(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         } else {
             "  [00/00]  ".to_string()
         };
-        left_spans.push(Span::styled(selection_lbl, Style::default().fg(theme.text_muted)));
+        left_spans.push(Span::styled(
+            selection_lbl,
+            Style::default().fg(theme.text_muted),
+        ));
 
         // Mode hints on the left in small text
         let hints = match app.mode {
-            AppMode::List => "j/k Down/Up  •  Enter Detail  •  d Diff  •  s Settings  •  u Undo  •  r Rewind",
+            AppMode::List => {
+                "j/k Down/Up  •  Enter Detail  •  d Diff  •  s Settings  •  u Undo  •  r Rewind"
+            }
             AppMode::Detail(_) => "j/k Scroll  •  Esc List  •  d Diff  •  u Undo  •  r Rewind",
             AppMode::Diff(_) => "j/k Scroll  •  Esc Detail",
             AppMode::Confirm(_) => "y Confirm  •  n/Esc Cancel",
@@ -777,8 +1082,11 @@ fn draw_status_bar(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
 
     // Right status panel (System context & theme tag)
     let mut right_spans = Vec::new();
-    right_spans.push(Span::styled("", Style::default().bg(theme.bg_dark).fg(theme.panel_bg)));
-    
+    right_spans.push(Span::styled(
+        "",
+        Style::default().bg(theme.bg_dark).fg(theme.panel_bg),
+    ));
+
     let theme_lbl = match app.theme_option {
         crate::app::ThemeOption::Dark => " 🌙 Dark ",
         crate::app::ThemeOption::Light => " ☀️ Light ",
@@ -789,13 +1097,21 @@ fn draw_status_bar(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         Style::default().bg(theme.panel_bg).fg(Color::White),
     ));
 
-    right_spans.push(Span::styled("", Style::default().bg(theme.panel_bg).fg(mode_color)));
+    right_spans.push(Span::styled(
+        "",
+        Style::default().bg(theme.panel_bg).fg(mode_color),
+    ));
     right_spans.push(Span::styled(
         "  ⧉ traz  ",
-        Style::default().bg(mode_color).fg(theme.bg_dark).add_modifier(Modifier::BOLD),
+        Style::default()
+            .bg(mode_color)
+            .fg(theme.bg_dark)
+            .add_modifier(Modifier::BOLD),
     ));
 
-    let right_bar = Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right).style(Style::default().bg(theme.bg_dark));
+    let right_bar = Paragraph::new(Line::from(right_spans))
+        .alignment(Alignment::Right)
+        .style(Style::default().bg(theme.bg_dark));
     f.render_widget(right_bar, status_layout[1]);
 }
 
@@ -803,9 +1119,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
 fn relative_time(then: &chrono::DateTime<chrono::Utc>) -> String {
     let delta = chrono::Utc::now().signed_duration_since(*then);
 
-    if delta.num_seconds() < 0 {
-        "just now".to_string()
-    } else if delta.num_seconds() < 60 {
+    if delta.num_seconds() < 60 {
         "just now".to_string()
     } else if delta.num_minutes() < 60 {
         format!("{}m ago", delta.num_minutes())

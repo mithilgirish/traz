@@ -105,7 +105,7 @@ impl Db {
                 model_version TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_embeddings_event_id ON event_embeddings(event_id);"
+            CREATE INDEX IF NOT EXISTS idx_embeddings_event_id ON event_embeddings(event_id);",
         )?;
 
         Ok(())

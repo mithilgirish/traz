@@ -39,10 +39,17 @@ impl Drop for RawModeGuard {
 pub fn run(db_path: PathBuf) -> Result<()> {
     // 1. Startup Sequence: Print experimental guide to plain stdout
     println!();
-    println!("  \x1b[38;5;51m◆\x1b[0m \x1b[1mtraz-tui\x1b[0m \x1b[38;5;240m•\x1b[0m interactive timeline explorer \x1b[38;5;245m(v{})\x1b[0m", env!("CARGO_PKG_VERSION"));
+    println!(
+        "  \x1b[38;5;51m◆\x1b[0m \x1b[1mtraz-tui\x1b[0m \x1b[38;5;240m•\x1b[0m interactive timeline explorer \x1b[38;5;245m(v{})\x1b[0m",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("  \x1b[38;5;240m├─\x1b[0m \x1b[38;5;77m✓\x1b[0m local-first engine online");
-    println!("  \x1b[38;5;240m├─\x1b[0m \x1b[38;5;245mnavigate:  \x1b[1mj\x1b[0m/\x1b[1mk\x1b[0m or \x1b[1m↑\x1b[0m/\x1b[1m↓\x1b[0m  │  select: \x1b[1mEnter\x1b[0m  │  settings: \x1b[1ms\x1b[0m or \x1b[1m,\x1b[0m");
-    println!("  \x1b[38;5;240m└─\x1b[0m \x1b[38;5;245mcommands:  \x1b[1md\x1b[0m diff      │  \x1b[1mu\x1b[0m undo     │  \x1b[1mr\x1b[0m rewind    │  \x1b[1mq\x1b[0m quit");
+    println!(
+        "  \x1b[38;5;240m├─\x1b[0m \x1b[38;5;245mnavigate:  \x1b[1mj\x1b[0m/\x1b[1mk\x1b[0m or \x1b[1m↑\x1b[0m/\x1b[1m↓\x1b[0m  │  select: \x1b[1mEnter\x1b[0m  │  settings: \x1b[1ms\x1b[0m or \x1b[1m,\x1b[0m"
+    );
+    println!(
+        "  \x1b[38;5;240m└─\x1b[0m \x1b[38;5;245mcommands:  \x1b[1md\x1b[0m diff      │  \x1b[1mu\x1b[0m undo     │  \x1b[1mr\x1b[0m rewind    │  \x1b[1mq\x1b[0m quit"
+    );
     println!();
     println!("  \x1b[38;5;208m⚡ Entering visual workspace...\x1b[0m");
     let _ = std::io::stdout().flush();
@@ -59,7 +66,8 @@ pub fn run(db_path: PathBuf) -> Result<()> {
     // 2. Open DB directly
     let db = traz_db::Db::open(&db_path)?;
 
-    let custom_theme_path = db_path.parent()
+    let custom_theme_path = db_path
+        .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("theme.json");
@@ -86,10 +94,10 @@ pub fn run(db_path: PathBuf) -> Result<()> {
 
         if crossterm::event::poll(std::time::Duration::from_millis(50))? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                if key.kind != crossterm::event::KeyEventKind::Release {
-                    if handle_input(&mut app, key)? {
-                        break;
-                    }
+                if key.kind != crossterm::event::KeyEventKind::Release
+                    && handle_input(&mut app, key)?
+                {
+                    break;
                 }
             }
         }

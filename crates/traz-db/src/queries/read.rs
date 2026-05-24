@@ -1,5 +1,5 @@
 use crate::database::Db;
-use crate::queries::helpers::{collect_events, row_to_event, MAX_RESULTS};
+use crate::queries::helpers::{MAX_RESULTS, collect_events, row_to_event};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use rusqlite::params;
@@ -41,16 +41,21 @@ impl Db {
     }
 
     /// Full-text-ish search with LIKE wildcard escaping, optional tool filter.
-    pub fn search_events(&self, query: &str, filters: &SearchFilters, limit: u32) -> Result<Vec<Event>> {
+    pub fn search_events(
+        &self,
+        query: &str,
+        filters: &SearchFilters,
+        limit: u32,
+    ) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
         let terms: Vec<&str> = query.split_whitespace().collect();
-        
+
         let mut sql = String::from(
             "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events
              WHERE 1=1"
         );
-        
+
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut param_idx = 1;
 
@@ -61,7 +66,7 @@ impl Db {
                     .replace('%', "\\%")
                     .replace('_', "\\_");
                 let like = format!("%{}%", escaped);
-                
+
                 sql.push_str(&format!(
                     " AND (title LIKE ?{idx} ESCAPE '\\'
                        OR summary LIKE ?{idx} ESCAPE '\\'
@@ -89,7 +94,10 @@ impl Db {
         }
 
         if let Some(tag) = filters.tag {
-            let escaped = tag.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+            let escaped = tag
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
             let like = format!("%\"{}\"%", escaped);
             sql.push_str(&format!(" AND tags LIKE ?{} ESCAPE '\\'", param_idx));
             params.push(Box::new(like));
@@ -107,10 +115,10 @@ impl Db {
 
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(&sql)?;
-        
+
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             params.iter().map(|p| p.as_ref()).collect();
-            
+
         collect_events(stmt.query_map(&*param_refs, row_to_event)?)
     }
 
@@ -233,14 +241,14 @@ impl Db {
             ctx.push_str(&format!("## Recent Activity (last {})\n\n", recent.len()));
             for event in &recent {
                 let ts = event.timestamp.format("%Y-%m-%d %H:%M UTC");
-                ctx.push_str(&format!(
-                    "### {} [{}] — {}\n",
-                    event.title, event.tool, ts
-                ));
+                ctx.push_str(&format!("### {} [{}] — {}\n", event.title, event.tool, ts));
                 ctx.push_str(&format!("- **Type:** {}\n", event.event_type));
 
                 if let Some(ref summary) = event.summary {
-                    ctx.push_str(&format!("- **Summary:** {}\n", summary.lines().next().unwrap_or(summary)));
+                    ctx.push_str(&format!(
+                        "- **Summary:** {}\n",
+                        summary.lines().next().unwrap_or(summary)
+                    ));
                 }
                 if let Some(ref files) = event.files {
                     if !files.is_empty() {
@@ -249,7 +257,13 @@ impl Db {
                 }
                 if let Some(ref tags) = event.tags {
                     if !tags.is_empty() {
-                        ctx.push_str(&format!("- **Tags:** {}\n", tags.iter().map(|t| format!("#{}", t)).collect::<Vec<_>>().join(" ")));
+                        ctx.push_str(&format!(
+                            "- **Tags:** {}\n",
+                            tags.iter()
+                                .map(|t| format!("#{}", t))
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        ));
                     }
                 }
                 if event.diff.is_some() {
@@ -265,19 +279,19 @@ impl Db {
     /// Optimized semantic search using one-pass join scanning and f32 cosine similarities.
     pub fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<(Event, f32)>> {
         // TODO v0.2: use sqlite-vec extension for ANN search
-        
+
         let query_vec = traz_embeddings::embed_text(query)?;
-        
+
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(
             "SELECT e.id, e.uuid, e.tool, e.type, e.title, e.summary, e.files, e.metadata, e.tags, e.session_id, e.diff, e.timestamp, e.created_at, ee.vector
              FROM events e
              INNER JOIN event_embeddings ee ON e.id = ee.event_id"
         )?;
-        
+
         let mut results = Vec::new();
         let mut rows = stmt.query([])?;
-        
+
         while let Some(row) = rows.next()? {
             let event = row_to_event(row)?;
             let vector_bytes: Vec<u8> = row.get(13)?;
@@ -285,23 +299,28 @@ impl Db {
                 .chunks(4)
                 .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
                 .collect();
-            
+
             let similarity = traz_embeddings::cosine_similarity(&query_vec, &event_vec);
             let similarity = similarity.clamp(0.0, 1.0);
             results.push((event, similarity));
         }
-        
+
         // Sort by similarity descending
         results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         // Take top `limit`
         results.truncate(limit);
-        
+
         Ok(results)
     }
 
     /// Combines keyword search and semantic search using Reciprocal Rank Fusion (RRF).
-    pub fn hybrid_search(&self, query: &str, filters: &SearchFilters, limit: u32) -> Result<Vec<(Event, f32)>> {
+    pub fn hybrid_search(
+        &self,
+        query: &str,
+        filters: &SearchFilters,
+        limit: u32,
+    ) -> Result<Vec<(Event, f32)>> {
         let mut results = std::collections::HashMap::new();
         let rrf_k = 60.0;
 
@@ -325,26 +344,36 @@ impl Db {
                     if similarity < 0.3 {
                         continue;
                     }
-                    
+
                     if let Some(t) = filters.tool {
-                        if !event.tool.eq_ignore_ascii_case(t) { continue; }
+                        if !event.tool.eq_ignore_ascii_case(t) {
+                            continue;
+                        }
                     }
                     if let Some(et) = filters.event_type {
-                        if !event.event_type.eq_ignore_ascii_case(et) { continue; }
+                        if !event.event_type.eq_ignore_ascii_case(et) {
+                            continue;
+                        }
                     }
                     if let Some(tag) = filters.tag {
                         if let Some(tags) = &event.tags {
-                            if !tags.iter().any(|t_str| t_str.eq_ignore_ascii_case(tag)) { continue; }
+                            if !tags.iter().any(|t_str| t_str.eq_ignore_ascii_case(tag)) {
+                                continue;
+                            }
                         } else {
                             continue;
                         }
                     }
                     if let Some(since) = filters.since {
-                        if event.timestamp < since { continue; }
+                        if event.timestamp < since {
+                            continue;
+                        }
                     }
 
                     let rrf_score = 1.0 / (rrf_k + rank as f32);
-                    if let std::collections::hash_map::Entry::Occupied(mut entry) = results.entry(event.id) {
+                    if let std::collections::hash_map::Entry::Occupied(mut entry) =
+                        results.entry(event.id)
+                    {
                         entry.get_mut().1 += rrf_score;
                     } else {
                         results.insert(event.id, (event, rrf_score));

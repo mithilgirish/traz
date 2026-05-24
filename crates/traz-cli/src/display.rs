@@ -1,6 +1,6 @@
-use traz_core::Event;
 use std::io::IsTerminal;
 use std::sync::OnceLock;
+use traz_core::Event;
 
 static COLOR_SUPPORTED: OnceLock<bool> = OnceLock::new();
 
@@ -9,11 +9,7 @@ fn use_color() -> bool {
 }
 
 fn c(ansi: &'static str) -> &'static str {
-    if use_color() {
-        ansi
-    } else {
-        ""
-    }
+    if use_color() { ansi } else { "" }
 }
 
 /// ANSI color constants (raw).
@@ -96,7 +92,10 @@ pub fn print_event(event: &Event) {
         "  {CYAN}◆{RESET}  {icon}  {BOLD}{}{RESET}  {DIM}[{CYAN}{}{RESET}{DIM} · {}{DIM}]{RESET}",
         event.title, event.tool, rel,
     );
-    println!("  {DIM}│{RESET}  {DIM}type:{RESET}  {MAGENTA}{}{RESET}", event.event_type);
+    println!(
+        "  {DIM}│{RESET}  {DIM}type:{RESET}  {MAGENTA}{}{RESET}",
+        event.event_type
+    );
 
     if let Some(ref summary) = event.summary {
         // Only show the first line in timeline view
@@ -128,7 +127,10 @@ pub fn print_event(event: &Event) {
 
     if let Some(ref diff) = event.diff {
         let line_count = diff.lines().count();
-        println!("  {DIM}│{RESET}  {DIM}diff:{RESET}  {GREEN}+{} lines{RESET}", line_count);
+        println!(
+            "  {DIM}│{RESET}  {DIM}diff:{RESET}  {GREEN}+{} lines{RESET}",
+            line_count
+        );
     }
 }
 
@@ -147,14 +149,32 @@ pub fn print_event_detail(event: &Event) {
 
     println!();
     println!("  {CYAN}◆{RESET}  {BOLD}{icon} {}{RESET}", event.title);
-    println!("  {DIM}├──{RESET} {DIM}ID:{RESET}        {CYAN}#{}{RESET}", event.id.unwrap_or(0));
-    println!("  {DIM}├──{RESET} {DIM}UUID:{RESET}      {DIM}{}{RESET}", event.uuid);
-    println!("  {DIM}├──{RESET} {DIM}Tool:{RESET}      {CYAN}{}{RESET}", event.tool);
-    println!("  {DIM}├──{RESET} {DIM}Type:{RESET}      {MAGENTA}{}{RESET}", event.event_type);
-    println!("  {DIM}├──{RESET} {DIM}When:{RESET}      {} {DIM}({}){RESET}", ts, rel);
+    println!(
+        "  {DIM}├──{RESET} {DIM}ID:{RESET}        {CYAN}#{}{RESET}",
+        event.id.unwrap_or(0)
+    );
+    println!(
+        "  {DIM}├──{RESET} {DIM}UUID:{RESET}      {DIM}{}{RESET}",
+        event.uuid
+    );
+    println!(
+        "  {DIM}├──{RESET} {DIM}Tool:{RESET}      {CYAN}{}{RESET}",
+        event.tool
+    );
+    println!(
+        "  {DIM}├──{RESET} {DIM}Type:{RESET}      {MAGENTA}{}{RESET}",
+        event.event_type
+    );
+    println!(
+        "  {DIM}├──{RESET} {DIM}When:{RESET}      {} {DIM}({}){RESET}",
+        ts, rel
+    );
 
     if let Some(ref session) = event.session_id {
-        println!("  {DIM}├──{RESET} {DIM}Session:{RESET}   {YELLOW}{}{RESET}", session);
+        println!(
+            "  {DIM}├──{RESET} {DIM}Session:{RESET}   {YELLOW}{}{RESET}",
+            session
+        );
     }
 
     if let Some(ref summary) = event.summary {
@@ -168,7 +188,11 @@ pub fn print_event_detail(event: &Event) {
         if !files.is_empty() {
             println!("  {DIM}├──{RESET} {BOLD}Changed Files{RESET}");
             for (idx, f) in files.iter().enumerate() {
-                let guide = if idx == files.len() - 1 { "  │    └── " } else { "  │    ├── " };
+                let guide = if idx == files.len() - 1 {
+                    "  │    └── "
+                } else {
+                    "  │    ├── "
+                };
                 println!("{}{BLUE}{}{RESET}", guide, f);
             }
         }
@@ -176,15 +200,22 @@ pub fn print_event_detail(event: &Event) {
 
     if let Some(ref tags) = event.tags {
         if !tags.is_empty() {
-            let tag_str = tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join(" ");
+            let tag_str = tags
+                .iter()
+                .map(|t| format!("#{t}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             println!("  {DIM}├──{RESET} {DIM}Tags:{RESET}     {YELLOW}{tag_str}{RESET}");
         }
     }
 
     if let Some(ref diff) = event.diff {
         let line_count = diff.lines().count();
-        println!("  {DIM}├──{RESET} {DIM}Diff:{RESET}     {GREEN}+{} lines{RESET} {DIM}(use `traz diff {}` to view){RESET}",
-            line_count, event.id.unwrap_or(0));
+        println!(
+            "  {DIM}├──{RESET} {DIM}Diff:{RESET}     {GREEN}+{} lines{RESET} {DIM}(use `traz diff {}` to view){RESET}",
+            line_count,
+            event.id.unwrap_or(0)
+        );
     }
 
     if let Some(ref metadata) = event.metadata {

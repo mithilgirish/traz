@@ -38,7 +38,7 @@ pub struct App {
     pub status_message_time: Option<Instant>,
     pub scroll_offset: usize,
     pub db: Db,
-    
+
     // Aesthetic Preference Switches
     pub is_dark_mode: bool,
     pub theme_option: ThemeOption,
@@ -82,7 +82,10 @@ impl App {
             return;
         }
 
-        match self.db.hybrid_search(&self.search_query, &traz_db::SearchFilters::default(), 50) {
+        match self
+            .db
+            .hybrid_search(&self.search_query, &traz_db::SearchFilters::default(), 50)
+        {
             Ok(results) => {
                 self.events = results.iter().map(|(e, _)| e.clone()).collect();
                 self.search_scores = results.into_iter().map(|(_, s)| s).collect();

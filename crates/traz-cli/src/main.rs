@@ -56,10 +56,19 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_existed: bool) -> Result<()> {
+async fn run_command(
+    command: Commands,
+    config: &TrazConfig,
+    db: Arc<Db>,
+    db_existed: bool,
+) -> Result<()> {
     match command {
         // ── Project setup ───────────────────────────────────────────
-        Commands::Init { hook, with_embeddings, local: _ } => {
+        Commands::Init {
+            hook,
+            with_embeddings,
+            local: _,
+        } => {
             #[allow(non_snake_case, unused_variables)]
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
 
@@ -73,7 +82,9 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
             } else {
                 println!("  {GREEN}✓{RESET} {BOLD}Traz initialized{RESET}");
                 println!("    {DIM}DB:{RESET}   {}", config.db_path.display());
-                println!("    {BOLD}Next:{RESET} run {CYAN}`traz setup claude`{RESET} to connect Claude Code");
+                println!(
+                    "    {BOLD}Next:{RESET} run {CYAN}`traz setup claude`{RESET} to connect Claude Code"
+                );
                 println!("          run {CYAN}`traz init --hook`{RESET} to install git hooks");
                 println!("          run {CYAN}`traz serve`{RESET} to start the REST API on :4000");
             }
@@ -141,11 +152,20 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
                                 }
                             })
                             .unwrap_or_else(|| ".git".to_string());
-                        
+
                         let git_dir_path = std::path::Path::new(&git_dir);
-                        print_success(&format!("Installed post-commit hook: {}", git_dir_path.join("hooks/post-commit").display()));
-                        print_success(&format!("Installed post-checkout hook: {}", git_dir_path.join("hooks/post-checkout").display()));
-                        print_success(&format!("Installed pre-push hook: {}", git_dir_path.join("hooks/pre-push").display()));
+                        print_success(&format!(
+                            "Installed post-commit hook: {}",
+                            git_dir_path.join("hooks/post-commit").display()
+                        ));
+                        print_success(&format!(
+                            "Installed post-checkout hook: {}",
+                            git_dir_path.join("hooks/post-checkout").display()
+                        ));
+                        print_success(&format!(
+                            "Installed pre-push hook: {}",
+                            git_dir_path.join("hooks/pre-push").display()
+                        ));
                     }
                     Err(e) => print_empty(&format!("Failed to install hooks: {}", e)),
                 }
@@ -230,10 +250,17 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
                 for (idx, (event, score)) in results.iter().enumerate() {
                     let num = idx + 1;
                     let age = display::relative_time(&event.timestamp);
-                    let tags_str = event.tags.as_ref()
-                        .map(|t| t.iter().map(|s| format!("#{s}")).collect::<Vec<_>>().join(" "))
+                    let tags_str = event
+                        .tags
+                        .as_ref()
+                        .map(|t| {
+                            t.iter()
+                                .map(|s| format!("#{s}"))
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        })
                         .unwrap_or_default();
-                    
+
                     let highlighted_title = highlight_term(&event.title, &query);
 
                     let score_str = if *score >= 0.99 {
@@ -253,10 +280,13 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
         }
 
         Commands::BackfillEmbeddings => {
+            #[allow(non_snake_case, unused_variables)]
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
             println!("{BOLD}Backfilling embeddings for missing events...{RESET}");
             match db.backfill_missing_embeddings() {
-                Ok(count) => println!("  {GREEN}✓{RESET} Generated embeddings for {BOLD}{count}{RESET} events."),
+                Ok(count) => println!(
+                    "  {GREEN}✓{RESET} Generated embeddings for {BOLD}{count}{RESET} events."
+                ),
                 Err(e) => eprintln!("  {MAGENTA}✗{RESET} Error: {}", e),
             }
         }
@@ -320,7 +350,14 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
                 anyhow::bail!("Event title/message cannot be empty.");
             }
 
-            let mut event = Event::new(tool.clone(), event_type.clone(), message_trimmed.to_string(), None, None, None);
+            let mut event = Event::new(
+                tool.clone(),
+                event_type.clone(),
+                message_trimmed.to_string(),
+                None,
+                None,
+                None,
+            );
             if diff {
                 match traz_integrations::git::get_uncommitted_diff() {
                     Ok(Some(d)) => {
@@ -398,8 +435,7 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
         Commands::Show { id, json } => match db.get_event(id)? {
             Some(event) => {
                 if json {
-                    let j =
-                        serde_json::to_string_pretty(&event).unwrap_or_else(|_| "{}".into());
+                    let j = serde_json::to_string_pretty(&event).unwrap_or_else(|_| "{}".into());
                     println!("{}", j);
                 } else {
                     print_event_detail(&event);
@@ -420,9 +456,7 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
                         for line in diff.lines() {
                             if use_color && line.starts_with('+') && !line.starts_with("+++") {
                                 println!("\x1b[32m{}\x1b[0m", line); // green
-                            } else if use_color
-                                && line.starts_with('-')
-                                && !line.starts_with("---")
+                            } else if use_color && line.starts_with('-') && !line.starts_with("---")
                             {
                                 println!("\x1b[31m{}\x1b[0m", line); // red
                             } else if use_color && line.starts_with("@@") {
@@ -472,9 +506,7 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
             if json {
                 let tools: serde_json::Value = by_tool
                     .iter()
-                    .map(|(tool, cnt)| {
-                        serde_json::json!({ "tool": tool, "count": cnt })
-                    })
+                    .map(|(tool, cnt)| serde_json::json!({ "tool": tool, "count": cnt }))
                     .collect();
                 let data = serde_json::json!({
                     "total_events": count,
@@ -550,7 +582,8 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
                     std::time::Duration::from_millis(100),
                     tokio::net::TcpStream::connect(&addr),
                 )
-                .await {
+                .await
+                {
                     res.is_ok()
                 } else {
                     false
@@ -607,10 +640,7 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
                 match db.insert_event(event) {
                     Ok(_) => imported += 1,
                     Err(e) => {
-                        print_warning(&format!(
-                            "Skipped event \"{}\": {}",
-                            event.title, e
-                        ));
+                        print_warning(&format!("Skipped event \"{}\": {}", event.title, e));
                         skipped += 1;
                     }
                 }
@@ -729,11 +759,15 @@ async fn run_interactive() -> Result<()> {
                     // Prevent launching sub-servers inside REPL
                     match &cmd {
                         Commands::Serve { .. } => {
-                            print_info("Use `traz serve` directly from your shell (not inside interactive mode).");
+                            print_info(
+                                "Use `traz serve` directly from your shell (not inside interactive mode).",
+                            );
                             continue;
                         }
                         Commands::Mcp => {
-                            print_info("Use `traz mcp` directly from your shell (not inside interactive mode).");
+                            print_info(
+                                "Use `traz mcp` directly from your shell (not inside interactive mode).",
+                            );
                             continue;
                         }
                         _ => {}
@@ -750,9 +784,7 @@ async fn run_interactive() -> Result<()> {
                 if let Some(first_line) = msg.lines().find(|l| !l.trim().is_empty()) {
                     eprintln!("  \x1b[31m✗\x1b[0m {}", first_line.trim());
                 } else {
-                    eprintln!(
-                        "  \x1b[31m✗\x1b[0m Invalid command. Type `help` for usage."
-                    );
+                    eprintln!("  \x1b[31m✗\x1b[0m Invalid command. Type `help` for usage.");
                 }
             }
         }
@@ -828,8 +860,10 @@ fn highlight_term(title: &str, query: &str) -> String {
 fn parse_duration(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     let now = chrono::Utc::now();
     let s = s.trim();
-    if s.is_empty() { return None; }
-    
+    if s.is_empty() {
+        return None;
+    }
+
     let chars: String = s.chars().filter(|c| c.is_alphabetic()).collect();
     let num_str: String = s.chars().filter(|c| c.is_numeric()).collect();
     let num: i64 = num_str.parse().ok()?;
@@ -839,6 +873,6 @@ fn parse_duration(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         "w" | "week" | "weeks" => Some(now - chrono::Duration::try_weeks(num)?),
         "m" | "month" | "months" => Some(now - chrono::Duration::try_days(num * 30)?),
         "y" | "year" | "years" => Some(now - chrono::Duration::try_days(num * 365)?),
-        _ => None
+        _ => None,
     }
 }

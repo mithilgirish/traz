@@ -14,11 +14,7 @@ const STABLE_TOOLS: &[&str] = &[
     "traz_stats",
 ];
 
-const EXPERIMENTAL_TOOLS: &[&str] = &[
-    "traz_timeline",
-    "traz_delete",
-    "traz_compress",
-];
+const EXPERIMENTAL_TOOLS: &[&str] = &["traz_timeline", "traz_delete", "traz_compress"];
 
 /// Maximum line length accepted from stdin (1 MB).
 const MAX_LINE_LEN: usize = 1_024 * 1_024;
@@ -27,7 +23,9 @@ const MAX_LINE_LEN: usize = 1_024 * 1_024;
 pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
     let experimental = std::env::var("TRAZ_EXPERIMENTAL").unwrap_or_default() == "1";
     if experimental {
-        eprintln!("[traz] experimental MCP tools enabled (traz_timeline, traz_delete, traz_compress). These may change in v0.2.");
+        eprintln!(
+            "[traz] experimental MCP tools enabled (traz_timeline, traz_delete, traz_compress). These may change in v0.2."
+        );
     }
 
     let stdin = io::stdin();
@@ -234,11 +232,11 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 return tool_err("Missing required argument: query");
             }
             let query = &query[..query.len().min(500)];
-            
+
             let tool_filter = args.get("tool").and_then(|v| v.as_str());
             let type_filter = args.get("type").and_then(|v| v.as_str());
             let tag_filter = args.get("tag").and_then(|v| v.as_str());
-            
+
             let filters = traz_db::SearchFilters {
                 tool: tool_filter,
                 event_type: type_filter,
@@ -259,12 +257,13 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                         } else {
                             format!("{:.0}%", score * 100.0)
                         };
-                        output.push_str(&format!("{}. [{}] {} - {} (tool: {}, type: {})\n", 
-                            idx + 1, 
-                            score_str, 
-                            event.title, 
-                            event.summary.as_deref().unwrap_or_default(), 
-                            event.tool, 
+                        output.push_str(&format!(
+                            "{}. [{}] {} - {} (tool: {}, type: {})\n",
+                            idx + 1,
+                            score_str,
+                            event.title,
+                            event.summary.as_deref().unwrap_or_default(),
+                            event.tool,
                             event.event_type
                         ));
                     }
@@ -299,7 +298,10 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                     .collect()
             });
 
-            let diff = args.get("diff").and_then(|d| d.as_str()).map(|s| s.to_string());
+            let diff = args
+                .get("diff")
+                .and_then(|d| d.as_str())
+                .map(|s| s.to_string());
 
             let mut event = Event::new(tool, event_type, title, summary, files, None);
             if let Some(d) = diff {
@@ -353,9 +355,15 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 match db.compress_events(d, s.to_string()) {
                     Ok((count, new_id)) => {
                         if count > 0 {
-                            tool_ok(&format!("Compressed {} events older than {} days into new Epoch event #{}.", count, d, new_id))
+                            tool_ok(&format!(
+                                "Compressed {} events older than {} days into new Epoch event #{}.",
+                                count, d, new_id
+                            ))
                         } else {
-                            tool_ok(&format!("No events older than {} days found. Nothing was compressed.", d))
+                            tool_ok(&format!(
+                                "No events older than {} days found. Nothing was compressed.",
+                                d
+                            ))
                         }
                     }
                     Err(e) => tool_err(&e.to_string()),

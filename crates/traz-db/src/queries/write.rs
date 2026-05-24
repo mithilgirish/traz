@@ -1,5 +1,5 @@
 use crate::database::Db;
-use crate::queries::helpers::{validate_field, MAX_FIELD_LEN, MAX_SUMMARY_LEN, MAX_FILES_COUNT};
+use crate::queries::helpers::{MAX_FIELD_LEN, MAX_FILES_COUNT, MAX_SUMMARY_LEN, validate_field};
 use anyhow::Result;
 use rusqlite::params;
 use traz_core::Event;
@@ -39,7 +39,11 @@ impl Db {
         let tags_json = event.tags.as_ref().map(serde_json::to_string).transpose()?;
 
         let embedding_bytes = if self.config.embeddings_enabled {
-            let text = format!("{} {}", event.title, event.summary.as_deref().unwrap_or_default());
+            let text = format!(
+                "{} {}",
+                event.title,
+                event.summary.as_deref().unwrap_or_default()
+            );
             match traz_embeddings::embed_text(&text) {
                 Ok(vec) => {
                     let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
@@ -137,23 +141,26 @@ impl Db {
 
         // 3. Insert the epoch event.
         let now = chrono::Utc::now();
-        let title = format!("Compressed {} events (older than {} days)", count, older_than_days);
-        
+        let title = format!(
+            "Compressed {} events (older than {} days)",
+            count, older_than_days
+        );
+
         // We use traz_core::Event just to generate a valid UUID without adding a direct dependency
-        let dummy = traz_core::Event::new("traz".into(), "epoch".into(), title.clone(), None, None, None);
+        let dummy = traz_core::Event::new(
+            "traz".into(),
+            "epoch".into(),
+            title.clone(),
+            None,
+            None,
+            None,
+        );
         let uuid = dummy.uuid;
-        
+
         tx.execute(
             "INSERT INTO events (uuid, tool, type, title, summary, timestamp) 
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                uuid,
-                "traz",
-                "epoch",
-                title,
-                summary,
-                now.to_rfc3339()
-            ]
+            params![uuid, "traz", "epoch", title, summary, now.to_rfc3339()],
         )?;
 
         let epoch_id = tx.last_insert_rowid();
@@ -175,9 +182,9 @@ impl Db {
             let conn = self.lock_conn();
             let mut stmt = conn.prepare(
                 "SELECT id, title, summary FROM events 
-                 WHERE id NOT IN (SELECT event_id FROM event_embeddings)"
+                 WHERE id NOT IN (SELECT event_id FROM event_embeddings)",
             )?;
-            
+
             let mut rows = stmt.query([])?;
             while let Some(row) = rows.next()? {
                 let id: i64 = row.get(0)?;
@@ -202,13 +209,19 @@ impl Db {
                          VALUES (?1, ?2, ?3, ?4)",
                         params![id, bytes, model_version, created_at],
                     ) {
-                        eprintln!("Warning: Failed to insert event embedding for id {}: {}", id, e);
+                        eprintln!(
+                            "Warning: Failed to insert event embedding for id {}: {}",
+                            id, e
+                        );
                     } else {
                         count += 1;
                     }
                 }
                 Err(e) => {
-                    eprintln!("Warning: Failed to generate event embedding for id {}: {}", id, e);
+                    eprintln!(
+                        "Warning: Failed to generate event embedding for id {}: {}",
+                        id, e
+                    );
                 }
             }
         }

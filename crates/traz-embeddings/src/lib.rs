@@ -1,6 +1,6 @@
-use std::sync::OnceLock;
-use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use anyhow::Result;
+use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use std::sync::OnceLock;
 
 static EMBEDDER: OnceLock<TextEmbedding> = OnceLock::new();
 
@@ -61,7 +61,7 @@ mod tests {
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![1.0, 0.0, 0.0];
         let c = vec![0.0, 1.0, 0.0];
-        
+
         assert!((cosine_similarity(&a, &b) - 1.0).abs() < 1e-5);
         assert!((cosine_similarity(&a, &c) - 0.0).abs() < 1e-5);
     }

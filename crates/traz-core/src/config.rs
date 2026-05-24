@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use serde::{Serialize, Deserialize};
 
 /// Global configuration for a traz instance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,7 +52,10 @@ impl TrazConfig {
     }
 
     fn load_or_default(db_path: PathBuf) -> Self {
-        let config_path = db_path.parent().unwrap_or(Path::new(".")).join("config.toml");
+        let config_path = db_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("config.toml");
 
         let mut config = if config_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&config_path) {
@@ -92,7 +95,11 @@ impl TrazConfig {
 
     /// Persist the current configuration to config.toml in the database directory.
     pub fn save(&self) -> anyhow::Result<()> {
-        let config_path = self.db_path.parent().unwrap_or(Path::new(".")).join("config.toml");
+        let config_path = self
+            .db_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("config.toml");
         if let Some(parent) = config_path.parent() {
             std::fs::create_dir_all(parent)?;
         }

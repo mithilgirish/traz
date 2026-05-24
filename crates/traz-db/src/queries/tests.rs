@@ -1,11 +1,12 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::database::Db;
+    use anyhow::Result;
     use rusqlite::Connection;
     use std::path::PathBuf;
     use std::sync::Mutex;
     use traz_core::Event;
-    use anyhow::Result;
 
     impl Db {
         fn migrate_for_test(&self) -> Result<()> {
@@ -89,18 +90,33 @@ mod tests {
         let db = test_db();
         let e1 = Event::new("t1".into(), "f1".into(), "Find me".into(), None, None, None);
         let e2 = Event::new("t2".into(), "f2".into(), "Hide me".into(), None, None, None);
-        let e3 = Event::new("t3".into(), "f3".into(), "Auth issue".into(), Some("bug".into()), None, None);
+        let e3 = Event::new(
+            "t3".into(),
+            "f3".into(),
+            "Auth issue".into(),
+            Some("bug".into()),
+            None,
+            None,
+        );
 
         db.insert_event(&e1).unwrap();
         db.insert_event(&e2).unwrap();
         db.insert_event(&e3).unwrap();
 
-        let results = db.search_events("Find", &crate::queries::read::SearchFilters::default(), 10).unwrap();
+        let results = db
+            .search_events("Find", &crate::queries::read::SearchFilters::default(), 10)
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Find me");
 
         // Test multi-word search: 'Auth' in title and 'bug' in summary
-        let results2 = db.search_events("Auth bug", &crate::queries::read::SearchFilters::default(), 10).unwrap();
+        let results2 = db
+            .search_events(
+                "Auth bug",
+                &crate::queries::read::SearchFilters::default(),
+                10,
+            )
+            .unwrap();
         assert_eq!(results2.len(), 1);
         assert_eq!(results2[0].title, "Auth issue");
     }
@@ -108,14 +124,21 @@ mod tests {
     #[test]
     fn test_search_with_tool_filter() {
         let db = test_db();
-        db.insert_event(&sample_event("cursor", "feature", "Auth module")).unwrap();
-        db.insert_event(&sample_event("claude", "feature", "Auth refactor")).unwrap();
+        db.insert_event(&sample_event("cursor", "feature", "Auth module"))
+            .unwrap();
+        db.insert_event(&sample_event("claude", "feature", "Auth refactor"))
+            .unwrap();
 
-        let results = db.search_events(
-            "Auth",
-            &crate::queries::read::SearchFilters { tool: Some("cursor"), ..Default::default() },
-            10
-        ).unwrap();
+        let results = db
+            .search_events(
+                "Auth",
+                &crate::queries::read::SearchFilters {
+                    tool: Some("cursor"),
+                    ..Default::default()
+                },
+                10,
+            )
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].tool, "cursor");
     }
@@ -149,9 +172,12 @@ mod tests {
     #[test]
     fn test_stats() {
         let db = test_db();
-        db.insert_event(&sample_event("cursor", "feature", "A")).unwrap();
-        db.insert_event(&sample_event("cursor", "bug_fix", "B")).unwrap();
-        db.insert_event(&sample_event("claude", "refactor", "C")).unwrap();
+        db.insert_event(&sample_event("cursor", "feature", "A"))
+            .unwrap();
+        db.insert_event(&sample_event("cursor", "bug_fix", "B"))
+            .unwrap();
+        db.insert_event(&sample_event("claude", "refactor", "C"))
+            .unwrap();
 
         let stats = db.get_stats().unwrap();
         assert!(!stats.is_empty());
@@ -166,20 +192,35 @@ mod tests {
     #[test]
     fn test_filtered_events() {
         let db = test_db();
-        db.insert_event(&sample_event("cursor", "feature", "A")).unwrap();
-        db.insert_event(&sample_event("claude", "bug_fix", "B")).unwrap();
-        db.insert_event(&sample_event("cursor", "bug_fix", "C")).unwrap();
+        db.insert_event(&sample_event("cursor", "feature", "A"))
+            .unwrap();
+        db.insert_event(&sample_event("claude", "bug_fix", "B"))
+            .unwrap();
+        db.insert_event(&sample_event("cursor", "bug_fix", "C"))
+            .unwrap();
 
         // Filter by tool
-        let results = db.get_filtered_events(10, Some("cursor".into()), None, None, None).unwrap();
+        let results = db
+            .get_filtered_events(10, Some("cursor".into()), None, None, None)
+            .unwrap();
         assert_eq!(results.len(), 2);
 
         // Filter by type
-        let results = db.get_filtered_events(10, None, Some("bug_fix".into()), None, None).unwrap();
+        let results = db
+            .get_filtered_events(10, None, Some("bug_fix".into()), None, None)
+            .unwrap();
         assert_eq!(results.len(), 2);
 
         // Filter by tool AND type
-        let results = db.get_filtered_events(10, Some("cursor".into()), Some("bug_fix".into()), None, None).unwrap();
+        let results = db
+            .get_filtered_events(
+                10,
+                Some("cursor".into()),
+                Some("bug_fix".into()),
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "C");
     }
@@ -230,8 +271,12 @@ mod tests {
     #[test]
     fn test_context_summary() {
         let db = test_db();
-        db.insert_event(&sample_event("cursor", "feature", "Built auth").with_tags(vec!["security".into()])).unwrap();
-        db.insert_event(&sample_event("claude", "bug_fix", "Fixed race")).unwrap();
+        db.insert_event(
+            &sample_event("cursor", "feature", "Built auth").with_tags(vec!["security".into()]),
+        )
+        .unwrap();
+        db.insert_event(&sample_event("claude", "bug_fix", "Fixed race"))
+            .unwrap();
 
         let ctx = db.get_context_summary(10).unwrap();
         assert!(ctx.contains("Engineering Context Summary"));
@@ -257,8 +302,8 @@ mod tests {
     #[test]
     fn test_diff_storage() {
         let db = test_db();
-        let event = sample_event("t", "f", "With diff")
-            .with_diff("+added line\n-removed line".into());
+        let event =
+            sample_event("t", "f", "With diff").with_diff("+added line\n-removed line".into());
         let id = db.insert_event(&event).unwrap();
 
         let retrieved = db.get_event(id).unwrap().unwrap();
@@ -282,7 +327,8 @@ mod tests {
     fn test_limit_capping() {
         let db = test_db();
         for i in 0..5 {
-            db.insert_event(&sample_event("t", "f", &format!("Event {}", i))).unwrap();
+            db.insert_event(&sample_event("t", "f", &format!("Event {}", i)))
+                .unwrap();
         }
 
         let events = db.get_recent_events(3).unwrap();
@@ -319,22 +365,38 @@ mod tests {
         };
         db.migrate().unwrap();
 
-        let e1 = Event::new("t1".into(), "f1".into(), "Authentication bug fix in backend".into(), Some("Fixed database reconnect during login session".into()), None, None);
-        let e2 = Event::new("t2".into(), "f2".into(), "Frontend CSS layout redesign".into(), Some("Re-aligned flex box grid items to center".into()), None, None);
+        let e1 = Event::new(
+            "t1".into(),
+            "f1".into(),
+            "Authentication bug fix in backend".into(),
+            Some("Fixed database reconnect during login session".into()),
+            None,
+            None,
+        );
+        let e2 = Event::new(
+            "t2".into(),
+            "f2".into(),
+            "Frontend CSS layout redesign".into(),
+            Some("Re-aligned flex box grid items to center".into()),
+            None,
+            None,
+        );
 
         let id1 = db.insert_event(&e1).unwrap();
         let id2 = db.insert_event(&e2).unwrap();
 
         // Search for something related to auth
         let results = db.semantic_search("login database", 10).unwrap();
-        
+
         // Assert we got results back
         assert!(!results.is_empty());
         // e1 should be ranked first because it contains "login" and "database reconnect"
         assert_eq!(results[0].0.id, Some(id1));
-        
+
         // Search for something related to styling
-        let results_css = db.semantic_search("css flexbox layout alignment", 10).unwrap();
+        let results_css = db
+            .semantic_search("css flexbox layout alignment", 10)
+            .unwrap();
         assert!(!results_css.is_empty());
         assert_eq!(results_css[0].0.id, Some(id2));
     }

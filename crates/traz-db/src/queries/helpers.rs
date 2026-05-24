@@ -18,7 +18,9 @@ pub(crate) fn validate_field(name: &str, value: &str, max_len: usize) -> Result<
     Ok(())
 }
 
-pub(crate) fn collect_events(iter: impl Iterator<Item = SqliteResult<Event>>) -> Result<Vec<Event>> {
+pub(crate) fn collect_events(
+    iter: impl Iterator<Item = SqliteResult<Event>>,
+) -> Result<Vec<Event>> {
     let mut events = Vec::new();
     for event in iter {
         events.push(event?);

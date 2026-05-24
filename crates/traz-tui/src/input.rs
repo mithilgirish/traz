@@ -144,34 +144,36 @@ pub fn handle_input(app: &mut App, key: KeyEvent) -> anyhow::Result<bool> {
         AppMode::Confirm(action) => match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 match action {
-                    ConfirmAction::Undo(id) => {
-                        match app.db.delete_event(*id) {
-                            Ok(true) => {
-                                app.set_status("✓ Event deleted");
-                            }
-                            Ok(false) => {
-                                app.set_status("✗ Event not found");
-                            }
-                            Err(e) => {
-                                app.set_status(&format!("✗ {}", e));
-                            }
+                    ConfirmAction::Undo(id) => match app.db.delete_event(*id) {
+                        Ok(true) => {
+                            app.set_status("✓ Event deleted");
                         }
-                    }
-                    ConfirmAction::Rewind(id) => {
-                        match app.db.delete_events_after(*id) {
-                            Ok(count) => {
-                                app.set_status(&format!("✓ Rewound — {} events removed", count));
-                            }
-                            Err(e) => {
-                                app.set_status(&format!("✗ {}", e));
-                            }
+                        Ok(false) => {
+                            app.set_status("✗ Event not found");
                         }
-                    }
+                        Err(e) => {
+                            app.set_status(&format!("✗ {}", e));
+                        }
+                    },
+                    ConfirmAction::Rewind(id) => match app.db.delete_events_after(*id) {
+                        Ok(count) => {
+                            app.set_status(&format!("✓ Rewound — {} events removed", count));
+                        }
+                        Err(e) => {
+                            app.set_status(&format!("✗ {}", e));
+                        }
+                    },
                     ConfirmAction::Compress => {
-                        match app.db.compress_events(14, "Interactive TUI compression".to_string()) {
+                        match app
+                            .db
+                            .compress_events(14, "Interactive TUI compression".to_string())
+                        {
                             Ok((count, _)) => {
                                 if count > 0 {
-                                    app.set_status(&format!("✓ Compressed {} events into epoch", count));
+                                    app.set_status(&format!(
+                                        "✓ Compressed {} events into epoch",
+                                        count
+                                    ));
                                 } else {
                                     app.set_status("✓ No events older than 14 days to compress");
                                 }
@@ -232,7 +234,7 @@ pub fn handle_input(app: &mut App, key: KeyEvent) -> anyhow::Result<bool> {
                                         let _ = std::fs::write(&app.custom_theme_path, pretty);
                                     }
                                 }
-                                
+
                                 app.set_status("✓ Switched theme to Custom (theme.json)");
                             }
                             crate::app::ThemeOption::Custom => {
@@ -244,12 +246,20 @@ pub fn handle_input(app: &mut App, key: KeyEvent) -> anyhow::Result<bool> {
                     }
                     1 => {
                         app.show_timeline = !app.show_timeline;
-                        let status = if app.show_timeline { "Timeline tree enabled" } else { "Timeline tree disabled" };
+                        let status = if app.show_timeline {
+                            "Timeline tree enabled"
+                        } else {
+                            "Timeline tree disabled"
+                        };
                         app.set_status(&format!("✓ {}", status));
                     }
                     2 => {
                         app.show_gutters = !app.show_gutters;
-                        let status = if app.show_gutters { "Line gutters enabled" } else { "Line gutters disabled" };
+                        let status = if app.show_gutters {
+                            "Line gutters enabled"
+                        } else {
+                            "Line gutters disabled"
+                        };
                         app.set_status(&format!("✓ {}", status));
                     }
                     _ => {}
