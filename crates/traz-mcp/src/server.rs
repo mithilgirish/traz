@@ -130,7 +130,10 @@ fn build_tool_definitions(experimental: bool) -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "The search term" }
+                    "query": { "type": "string", "description": "The search term" },
+                    "tool": { "type": "string", "description": "Filter by tool" },
+                    "type": { "type": "string", "description": "Filter by event type" },
+                    "tag": { "type": "string", "description": "Filter by tag" }
                 },
                 "required": ["query"]
             }
@@ -231,49 +234,43 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 return tool_err("Missing required argument: query");
             }
             let query = &query[..query.len().min(500)];
-            if db.config.embeddings_enabled {
-                match db.semantic_search(query, 100) {
-                    Ok(results) if results.is_empty() => {
-                        tool_ok(&format!("[semantic search] No events found matching \"{}\"", query))
-                    }
-                    Ok(results) => {
-                        let mut output = String::new();
-                        output.push_str("[semantic search]\n");
-                        for (idx, (event, score)) in results.iter().enumerate() {
-                            output.push_str(&format!("{}. [{:.0}%] {} - {} (tool: {}, type: {})\n", 
-                                idx + 1, 
-                                score * 100.0, 
-                                event.title, 
-                                event.summary.as_deref().unwrap_or_default(), 
-                                event.tool, 
-                                event.event_type
-                            ));
-                        }
-                        tool_ok(&output)
-                    }
-                    Err(e) => tool_err(&e.to_string()),
+            
+            let tool_filter = args.get("tool").and_then(|v| v.as_str());
+            let type_filter = args.get("type").and_then(|v| v.as_str());
+            let tag_filter = args.get("tag").and_then(|v| v.as_str());
+            
+            let filters = traz_db::SearchFilters {
+                tool: tool_filter,
+                event_type: type_filter,
+                tag: tag_filter,
+                since: None,
+            };
+
+            match db.hybrid_search(query, &filters, 100) {
+                Ok(results) if results.is_empty() => {
+                    tool_ok(&format!("[search] No events found matching \"{}\"", query))
                 }
-            } else {
-                match db.search_events(query, None, 100) {
-                    Ok(events) if events.is_empty() => {
-                        tool_ok(&format!("[keyword search] No events found matching \"{}\"", query))
+                Ok(results) => {
+                    let mut output = String::new();
+                    output.push_str("[search]\n");
+                    for (idx, (event, score)) in results.iter().enumerate() {
+                        let score_str = if *score >= 0.99 {
+                            "exact match".to_string()
+                        } else {
+                            format!("{:.0}%", score * 100.0)
+                        };
+                        output.push_str(&format!("{}. [{}] {} - {} (tool: {}, type: {})\n", 
+                            idx + 1, 
+                            score_str, 
+                            event.title, 
+                            event.summary.as_deref().unwrap_or_default(), 
+                            event.tool, 
+                            event.event_type
+                        ));
                     }
-                    Ok(events) => {
-                        let mut output = String::new();
-                        output.push_str("[keyword search]\n");
-                        for (idx, event) in events.iter().enumerate() {
-                            output.push_str(&format!("{}. {} - {} (tool: {}, type: {})\n", 
-                                idx + 1, 
-                                event.title, 
-                                event.summary.as_deref().unwrap_or_default(), 
-                                event.tool, 
-                                event.event_type
-                            ));
-                        }
-                        tool_ok(&output)
-                    }
-                    Err(e) => tool_err(&e.to_string()),
+                    tool_ok(&output)
                 }
+                Err(e) => tool_err(&e.to_string()),
             }
         }
         "traz_add" => {

@@ -5,6 +5,14 @@ use chrono::{DateTime, Utc};
 use rusqlite::params;
 use traz_core::Event;
 
+#[derive(Default, Debug, Clone)]
+pub struct SearchFilters<'a> {
+    pub tool: Option<&'a str>,
+    pub event_type: Option<&'a str>,
+    pub tag: Option<&'a str>,
+    pub since: Option<DateTime<Utc>>,
+}
+
 impl Db {
     /// Get a single event by its ID.
     pub fn get_event(&self, id: i64) -> Result<Option<Event>> {
@@ -33,65 +41,77 @@ impl Db {
     }
 
     /// Full-text-ish search with LIKE wildcard escaping, optional tool filter.
-    pub fn search_events(&self, query: &str, tool: Option<&str>, limit: u32) -> Result<Vec<Event>> {
+    pub fn search_events(&self, query: &str, filters: &SearchFilters, limit: u32) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
-        let escaped = query
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        let like = format!("%{}%", escaped);
-
+        let terms: Vec<&str> = query.split_whitespace().collect();
+        
         let mut sql = String::from(
             "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events
-             WHERE (title   LIKE ?1 ESCAPE '\\'
-                OR summary LIKE ?1 ESCAPE '\\'
-                OR type    LIKE ?1 ESCAPE '\\'
-                OR tool    LIKE ?1 ESCAPE '\\'
-                OR files   LIKE ?1 ESCAPE '\\'
-                OR tags    LIKE ?1 ESCAPE '\\'
-             )"
+             WHERE 1=1"
         );
+        
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1;
 
-        if tool.is_some() {
-            sql.push_str(" AND tool = ?2");
+        if !terms.is_empty() {
+            for term in terms {
+                let escaped = term
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_");
+                let like = format!("%{}%", escaped);
+                
+                sql.push_str(&format!(
+                    " AND (title LIKE ?{idx} ESCAPE '\\'
+                       OR summary LIKE ?{idx} ESCAPE '\\'
+                       OR type LIKE ?{idx} ESCAPE '\\'
+                       OR tool LIKE ?{idx} ESCAPE '\\'
+                       OR files LIKE ?{idx} ESCAPE '\\'
+                       OR tags LIKE ?{idx} ESCAPE '\\')",
+                    idx = param_idx
+                ));
+                params.push(Box::new(like));
+                param_idx += 1;
+            }
         }
-        sql.push_str(" ORDER BY timestamp DESC LIMIT ?3");
+
+        if let Some(t) = filters.tool {
+            sql.push_str(&format!(" AND tool = ?{}", param_idx));
+            params.push(Box::new(t.to_string()));
+            param_idx += 1;
+        }
+
+        if let Some(et) = filters.event_type {
+            sql.push_str(&format!(" AND type = ?{}", param_idx));
+            params.push(Box::new(et.to_string()));
+            param_idx += 1;
+        }
+
+        if let Some(tag) = filters.tag {
+            let escaped = tag.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+            let like = format!("%\"{}\"%", escaped);
+            sql.push_str(&format!(" AND tags LIKE ?{} ESCAPE '\\'", param_idx));
+            params.push(Box::new(like));
+            param_idx += 1;
+        }
+
+        if let Some(since) = filters.since {
+            sql.push_str(&format!(" AND timestamp >= ?{}", param_idx));
+            params.push(Box::new(since.to_rfc3339()));
+            param_idx += 1;
+        }
+
+        sql.push_str(&format!(" ORDER BY timestamp DESC LIMIT ?{}", param_idx));
+        params.push(Box::new(limit));
 
         let conn = self.lock_conn();
         let mut stmt = conn.prepare(&sql)?;
         
-        if let Some(tool_val) = tool {
-            collect_events(stmt.query_map(params![like, tool_val, limit], row_to_event)?)
-        } else {
-            drop(stmt);
-            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-            params.push(Box::new(like));
-            let mut sql = String::from(
-                "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
-                 FROM events
-                 WHERE (title   LIKE ?1 ESCAPE '\\'
-                    OR summary LIKE ?1 ESCAPE '\\'
-                    OR type    LIKE ?1 ESCAPE '\\'
-                    OR tool    LIKE ?1 ESCAPE '\\'
-                    OR files   LIKE ?1 ESCAPE '\\'
-                    OR tags    LIKE ?1 ESCAPE '\\'
-                 )"
-            );
-            if let Some(t) = tool {
-                sql.push_str(" AND tool = ?2");
-                params.push(Box::new(t.to_string()));
-                sql.push_str(" ORDER BY timestamp DESC LIMIT ?3");
-                params.push(Box::new(limit));
-            } else {
-                sql.push_str(" ORDER BY timestamp DESC LIMIT ?2");
-                params.push(Box::new(limit));
-            }
-            let mut stmt = conn.prepare(&sql)?;
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-                params.iter().map(|p| p.as_ref()).collect();
-            collect_events(stmt.query_map(&*param_refs, row_to_event)?)
-        }
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+            
+        collect_events(stmt.query_map(&*param_refs, row_to_event)?)
     }
 
     /// Filtered query with optional tool, type, and date predicates.
@@ -278,5 +298,72 @@ impl Db {
         results.truncate(limit);
         
         Ok(results)
+    }
+
+    /// Combines keyword search and semantic search using Reciprocal Rank Fusion (RRF).
+    pub fn hybrid_search(&self, query: &str, filters: &SearchFilters, limit: u32) -> Result<Vec<(Event, f32)>> {
+        let mut results = std::collections::HashMap::new();
+        let rrf_k = 60.0;
+
+        // 1. Keyword search (Sparse)
+        if let Ok(keyword_events) = self.search_events(query, filters, limit) {
+            let mut rank = 1;
+            for event in keyword_events {
+                let rrf_score = 1.0 / (rrf_k + rank as f32);
+                results.insert(event.id, (event, rrf_score));
+                rank += 1;
+            }
+        }
+
+        // 2. Semantic search (Dense)
+        if self.config.embeddings_enabled {
+            // Fetch more candidates since we might filter some out
+            let fetch_limit = (limit * 3).max(100);
+            if let Ok(sem_events) = self.semantic_search(query, fetch_limit as usize) {
+                let mut rank = 1;
+                for (event, similarity) in sem_events {
+                    if similarity < 0.3 {
+                        continue;
+                    }
+                    
+                    if let Some(t) = filters.tool {
+                        if !event.tool.eq_ignore_ascii_case(t) { continue; }
+                    }
+                    if let Some(et) = filters.event_type {
+                        if !event.event_type.eq_ignore_ascii_case(et) { continue; }
+                    }
+                    if let Some(tag) = filters.tag {
+                        if let Some(tags) = &event.tags {
+                            if !tags.iter().any(|t_str| t_str.eq_ignore_ascii_case(tag)) { continue; }
+                        } else {
+                            continue;
+                        }
+                    }
+                    if let Some(since) = filters.since {
+                        if event.timestamp < since { continue; }
+                    }
+
+                    let rrf_score = 1.0 / (rrf_k + rank as f32);
+                    if let std::collections::hash_map::Entry::Occupied(mut entry) = results.entry(event.id) {
+                        entry.get_mut().1 += rrf_score;
+                    } else {
+                        results.insert(event.id, (event, rrf_score));
+                    }
+                    rank += 1;
+                }
+            }
+        }
+
+        let mut all_results: Vec<(Event, f32)> = results.into_values().collect();
+
+        // Sort by blended RRF score descending, then timestamp descending
+        all_results.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.0.timestamp.cmp(&a.0.timestamp))
+        });
+
+        all_results.truncate(limit as usize);
+        Ok(all_results)
     }
 }

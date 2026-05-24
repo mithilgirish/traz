@@ -82,24 +82,13 @@ impl App {
             return;
         }
 
-        if self.db.config.embeddings_enabled {
-            match self.db.semantic_search(&self.search_query, 50) {
-                Ok(results) => {
-                    self.events = results.iter().map(|(e, _)| e.clone()).collect();
-                    self.search_scores = results.into_iter().map(|(_, s)| s).collect();
-                }
-                Err(e) => {
-                    self.set_status(&format!("Search error: {}", e));
-                }
+        match self.db.hybrid_search(&self.search_query, &traz_db::SearchFilters::default(), 50) {
+            Ok(results) => {
+                self.events = results.iter().map(|(e, _)| e.clone()).collect();
+                self.search_scores = results.into_iter().map(|(_, s)| s).collect();
             }
-        } else {
-            match self.db.search_events(&self.search_query, None, 50) {
-                Ok(events) => {
-                    self.events = events;
-                }
-                Err(e) => {
-                    self.set_status(&format!("Search error: {}", e));
-                }
+            Err(e) => {
+                self.set_status(&format!("Search error: {}", e));
             }
         }
 

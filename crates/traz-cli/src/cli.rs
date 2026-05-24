@@ -90,6 +90,18 @@ pub enum Commands {
         #[arg(long)]
         tool: Option<String>,
 
+        /// Filter by event type
+        #[arg(long = "type")]
+        event_type: Option<String>,
+
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+
+        /// Filter since a specific duration string (e.g. "1w" for one week ago, "3d" for 3 days ago)
+        #[arg(long)]
+        since: Option<String>,
+
         /// Output as raw JSON
         #[arg(long, default_value_t = false)]
         json: bool,
@@ -242,4 +254,7 @@ pub enum Commands {
         /// Tool name: claude, cursor, gemini, git
         tool: String,
     },
+
+    /// Generate embeddings for events that are missing them (e.g., from before semantic search was enabled)
+    BackfillEmbeddings,
 }

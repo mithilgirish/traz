@@ -89,13 +89,20 @@ mod tests {
         let db = test_db();
         let e1 = Event::new("t1".into(), "f1".into(), "Find me".into(), None, None, None);
         let e2 = Event::new("t2".into(), "f2".into(), "Hide me".into(), None, None, None);
+        let e3 = Event::new("t3".into(), "f3".into(), "Auth issue".into(), Some("bug".into()), None, None);
 
         db.insert_event(&e1).unwrap();
         db.insert_event(&e2).unwrap();
+        db.insert_event(&e3).unwrap();
 
-        let results = db.search_events("Find", None, 10).unwrap();
+        let results = db.search_events("Find", &crate::queries::read::SearchFilters::default(), 10).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Find me");
+
+        // Test multi-word search: 'Auth' in title and 'bug' in summary
+        let results2 = db.search_events("Auth bug", &crate::queries::read::SearchFilters::default(), 10).unwrap();
+        assert_eq!(results2.len(), 1);
+        assert_eq!(results2[0].title, "Auth issue");
     }
 
     #[test]
@@ -104,7 +111,11 @@ mod tests {
         db.insert_event(&sample_event("cursor", "feature", "Auth module")).unwrap();
         db.insert_event(&sample_event("claude", "feature", "Auth refactor")).unwrap();
 
-        let results = db.search_events("Auth", Some("cursor"), 10).unwrap();
+        let results = db.search_events(
+            "Auth",
+            &crate::queries::read::SearchFilters { tool: Some("cursor"), ..Default::default() },
+            10
+        ).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].tool, "cursor");
     }

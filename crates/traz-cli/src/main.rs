@@ -196,77 +196,68 @@ async fn run_command(command: Commands, config: &TrazConfig, db: Arc<Db>, db_exi
             query,
             limit,
             tool,
+            event_type,
+            tag,
+            since,
             json,
         } => {
             let limit = limit.min(50);
             #[allow(non_snake_case, unused_variables)]
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
 
-            if db.config.embeddings_enabled {
-                let mut results = db.semantic_search(&query, limit as usize)?;
-                if let Some(ref tool_filter) = tool {
-                    results.retain(|(event, _)| event.tool.eq_ignore_ascii_case(tool_filter));
-                }
+            let since_dt = since.as_deref().and_then(parse_duration);
+            let filters = traz_db::SearchFilters {
+                tool: tool.as_deref(),
+                event_type: event_type.as_deref(),
+                tag: tag.as_deref(),
+                since: since_dt,
+            };
 
-                if results.is_empty() {
-                    print_empty(&format!("No events matching \"{}\".", query));
-                } else if json {
-                    let json = serde_json::to_string_pretty(&results)?;
-                    println!("{}", json);
-                } else {
-                    print_header(&format!(
-                        "[semantic search] Search: \"{}\" ({} results)",
-                        query,
-                        results.len()
-                    ));
+            let results = db.hybrid_search(&query, &filters, limit)?;
 
-                    for (idx, (event, score)) in results.iter().enumerate() {
-                        let num = idx + 1;
-                        let age = display::relative_time(&event.timestamp);
-                        let tags_str = event.tags.as_ref()
-                            .map(|t| t.iter().map(|s| format!("#{s}")).collect::<Vec<_>>().join(" "))
-                            .unwrap_or_default();
-                        
-                        let highlighted_title = highlight_term(&event.title, &query);
-
-                        println!("  {:>2}. {} {GREEN}({:.0}%){RESET}", num, highlighted_title, score * 100.0);
-                        println!(
-                            "      {DIM}Tool:{RESET} {:<12} {DIM}Type:{RESET} {:<12} {DIM}Age:{RESET} {:<10} {DIM}Tags:{RESET} {}",
-                            event.tool, event.event_type, age, tags_str
-                        );
-                        println!();
-                    }
-                }
+            if results.is_empty() {
+                print_empty(&format!("No events matching \"{}\".", query));
+            } else if json {
+                let events: Vec<_> = results.into_iter().map(|(e, _)| e).collect();
+                print_events_json(&events);
             } else {
-                let events = db.search_events(&query, tool.as_deref(), limit)?;
-                if events.is_empty() {
-                    print_empty(&format!("No events matching \"{}\".", query));
-                } else if json {
-                    print_events_json(&events);
-                } else {
-                    print_header(&format!(
-                        "[keyword search] Search: \"{}\" ({} results)",
-                        query,
-                        events.len()
-                    ));
+                print_header(&format!(
+                    "[search] Search: \"{}\" ({} results)",
+                    query,
+                    results.len()
+                ));
 
-                    for (idx, event) in events.iter().enumerate() {
-                        let num = idx + 1;
-                        let age = display::relative_time(&event.timestamp);
-                        let tags_str = event.tags.as_ref()
-                            .map(|t| t.iter().map(|s| format!("#{s}")).collect::<Vec<_>>().join(" "))
-                            .unwrap_or_default();
-                        
-                        let highlighted_title = highlight_term(&event.title, &query);
+                for (idx, (event, score)) in results.iter().enumerate() {
+                    let num = idx + 1;
+                    let age = display::relative_time(&event.timestamp);
+                    let tags_str = event.tags.as_ref()
+                        .map(|t| t.iter().map(|s| format!("#{s}")).collect::<Vec<_>>().join(" "))
+                        .unwrap_or_default();
+                    
+                    let highlighted_title = highlight_term(&event.title, &query);
 
-                        println!("  {:>2}. {}", num, highlighted_title);
-                        println!(
-                            "      {DIM}Tool:{RESET} {:<12} {DIM}Type:{RESET} {:<12} {DIM}Age:{RESET} {:<10} {DIM}Tags:{RESET} {}",
-                            event.tool, event.event_type, age, tags_str
-                        );
-                        println!();
-                    }
+                    let score_str = if *score >= 0.99 {
+                        format!("{GREEN}(exact match){RESET}")
+                    } else {
+                        format!("{GREEN}({:.0}%){RESET}", score * 100.0)
+                    };
+
+                    println!("  {:>2}. {} {}", num, highlighted_title, score_str);
+                    println!(
+                        "      {DIM}Tool:{RESET} {:<12} {DIM}Type:{RESET} {:<12} {DIM}Age:{RESET} {:<10} {DIM}Tags:{RESET} {}",
+                        event.tool, event.event_type, age, tags_str
+                    );
+                    println!();
                 }
+            }
+        }
+
+        Commands::BackfillEmbeddings => {
+            let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
+            println!("{BOLD}Backfilling embeddings for missing events...{RESET}");
+            match db.backfill_missing_embeddings() {
+                Ok(count) => println!("  {GREEN}✓{RESET} Generated embeddings for {BOLD}{count}{RESET} events."),
+                Err(e) => eprintln!("  {MAGENTA}✗{RESET} Error: {}", e),
             }
         }
 
@@ -832,4 +823,22 @@ fn highlight_term(title: &str, query: &str) -> String {
 
     result.push_str(&title[last_idx..]);
     result
+}
+
+fn parse_duration(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let now = chrono::Utc::now();
+    let s = s.trim();
+    if s.is_empty() { return None; }
+    
+    let chars: String = s.chars().filter(|c| c.is_alphabetic()).collect();
+    let num_str: String = s.chars().filter(|c| c.is_numeric()).collect();
+    let num: i64 = num_str.parse().ok()?;
+
+    match chars.as_str() {
+        "d" | "day" | "days" => Some(now - chrono::Duration::try_days(num)?),
+        "w" | "week" | "weeks" => Some(now - chrono::Duration::try_weeks(num)?),
+        "m" | "month" | "months" => Some(now - chrono::Duration::try_days(num * 30)?),
+        "y" | "year" | "years" => Some(now - chrono::Duration::try_days(num * 365)?),
+        _ => None
+    }
 }

@@ -1,5 +1,5 @@
 pub(crate) mod helpers;
-mod read;
+pub mod read;
 mod stats;
 mod write;
 

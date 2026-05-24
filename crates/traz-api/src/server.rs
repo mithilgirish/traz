@@ -182,7 +182,11 @@ async fn search_events(
     }
 
     let limit = filter.limit.unwrap_or(50).min(500);
-    match state.db.search_events(&query, filter.tool.as_deref(), limit) {
+    let filters = traz_db::SearchFilters {
+        tool: filter.tool.as_deref(),
+        ..Default::default()
+    };
+    match state.db.search_events(&query, &filters, limit) {
         Ok(events) => (StatusCode::OK, Json(events)).into_response(),
         Err(e) => {
             tracing::error!("Search failed: {}", e);
