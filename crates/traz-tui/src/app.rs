@@ -112,10 +112,11 @@ impl App {
     /// Clear the status message if 3 seconds have elapsed
     pub fn check_status_message(&mut self) {
         if let Some(time) = self.status_message_time
-            && time.elapsed().as_secs() >= 3 {
-                self.status_message = None;
-                self.status_message_time = None;
-            }
+            && time.elapsed().as_secs() >= 3
+        {
+            self.status_message = None;
+            self.status_message_time = None;
+        }
     }
 
     /// Reload events from the database

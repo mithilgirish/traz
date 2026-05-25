@@ -202,7 +202,7 @@ async fn search_events(
     let db_clone = state.db.clone();
     let tool_filter = filter.tool;
     let event_type_filter = filter.event_type;
-    
+
     let result = tokio::task::spawn_blocking(move || {
         let filters = traz_db::SearchFilters {
             tool: tool_filter.as_deref(),

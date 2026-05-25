@@ -78,6 +78,16 @@ cargo build --release
 
 ---
 
+## Documentation
+
+For a comprehensive guide on using `traz` and integrating it with your AI tools, please see the [Documentation](./docs/index.md):
+
+- 📖 [**User Guide**](./docs/USER_GUIDE.md) - CLI commands, semantic search, interactive TUI, and advanced filtering.
+- 🔌 [**MCP Integration**](./docs/MCP_INTEGRATION.md) - How to connect Claude Code, Cursor, Aider, and Warp to the `traz` context server.
+- 🏗️ [**Architecture**](./docs/ARCHITECTURE.md) - A deep dive into the SQLite vector storage, RRF search logic, and zero-cloud design.
+
+---
+
 ## Usage
 
 ### View recent activity across all tools

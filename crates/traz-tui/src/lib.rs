@@ -94,11 +94,11 @@ pub fn run(db_path: PathBuf) -> Result<()> {
 
         if crossterm::event::poll(std::time::Duration::from_millis(50))?
             && let crossterm::event::Event::Key(key) = crossterm::event::read()?
-                && key.kind != crossterm::event::KeyEventKind::Release
-                    && handle_input(&mut app, key)?
-                {
-                    break;
-                }
+            && key.kind != crossterm::event::KeyEventKind::Release
+            && handle_input(&mut app, key)?
+        {
+            break;
+        }
     }
 
     Ok(())

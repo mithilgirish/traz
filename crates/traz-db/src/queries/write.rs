@@ -195,8 +195,11 @@ impl Db {
 
         for chunk in missing_ids.chunks(chunk_size) {
             let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-            let sql = format!("SELECT id, title, summary FROM events WHERE id IN ({})", placeholders);
-            
+            let sql = format!(
+                "SELECT id, title, summary FROM events WHERE id IN ({})",
+                placeholders
+            );
+
             let mut batch = Vec::new();
             {
                 let conn = self.lock_conn();
@@ -209,7 +212,7 @@ impl Db {
                     batch.push((id, title, summary));
                 }
             }
-            
+
             let mut embeddings_batch = Vec::new();
             for (id, title, summary) in batch {
                 let text = format!("{} {}", title, summary.as_deref().unwrap_or_default());
@@ -219,11 +222,14 @@ impl Db {
                         embeddings_batch.push((id, bytes));
                     }
                     Err(e) => {
-                        eprintln!("Warning: Failed to generate event embedding for id {}: {}", id, e);
+                        eprintln!(
+                            "Warning: Failed to generate event embedding for id {}: {}",
+                            id, e
+                        );
                     }
                 }
             }
-            
+
             if !embeddings_batch.is_empty() {
                 let mut guard = match self.conn.lock() {
                     Ok(g) => g,
