@@ -13,8 +13,8 @@ use tower_http::trace::TraceLayer;
 use traz_core::Event;
 use traz_db::Db;
 
-/// Maximum request body size: 64 KB.
-const MAX_BODY_SIZE: usize = 64 * 1024;
+/// Maximum request body size: 10 MB.
+const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
 
 #[derive(Clone)]
 struct AppState {
@@ -84,8 +84,14 @@ async fn health() -> impl IntoResponse {
 }
 
 async fn stats(State(state): State<AppState>) -> impl IntoResponse {
-    let count = state.db.count_events().unwrap_or(0);
-    let by_tool = state.db.get_stats().unwrap_or_default();
+    let db_clone = state.db.clone();
+    let (count, by_tool) = tokio::task::spawn_blocking(move || {
+        let count = db_clone.count_events().unwrap_or(0);
+        let by_tool = db_clone.get_stats().unwrap_or_default();
+        (count, by_tool)
+    })
+    .await
+    .unwrap_or_default();
 
     let tools: serde_json::Value = by_tool
         .into_iter()
@@ -124,10 +130,16 @@ async fn create_event(
         event = event.with_diff(diff);
     }
 
-    match state.db.insert_event(&event) {
+    let db_clone = state.db.clone();
+    let event_uuid = event.uuid.clone();
+    let result = tokio::task::spawn_blocking(move || db_clone.insert_event(&event))
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+
+    match result {
         Ok(id) => (
             StatusCode::CREATED,
-            Json(serde_json::json!({ "id": id, "uuid": event.uuid, "status": "created" })),
+            Json(serde_json::json!({ "id": id, "uuid": event_uuid, "status": "created" })),
         )
             .into_response(),
         Err(e) => {
@@ -147,13 +159,18 @@ async fn list_events(
 ) -> impl IntoResponse {
     let limit = filter.limit.unwrap_or(50).min(500);
 
-    let result = state.db.get_filtered_events(
-        limit,
-        filter.tool,
-        filter.event_type,
-        filter.since,
-        filter.until,
-    );
+    let db_clone = state.db.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        db_clone.get_filtered_events(
+            limit,
+            filter.tool,
+            filter.event_type,
+            filter.since,
+            filter.until,
+        )
+    })
+    .await
+    .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
 
     match result {
         Ok(events) => (StatusCode::OK, Json(events)).into_response(),
@@ -182,11 +199,22 @@ async fn search_events(
     }
 
     let limit = filter.limit.unwrap_or(50).min(500);
-    let filters = traz_db::SearchFilters {
-        tool: filter.tool.as_deref(),
-        ..Default::default()
-    };
-    match state.db.search_events(&query, &filters, limit) {
+    let db_clone = state.db.clone();
+    let tool_filter = filter.tool;
+    let event_type_filter = filter.event_type;
+    
+    let result = tokio::task::spawn_blocking(move || {
+        let filters = traz_db::SearchFilters {
+            tool: tool_filter.as_deref(),
+            event_type: event_type_filter.as_deref(),
+            ..Default::default()
+        };
+        db_clone.search_events(&query, &filters, limit)
+    })
+    .await
+    .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+
+    match result {
         Ok(events) => (StatusCode::OK, Json(events)).into_response(),
         Err(e) => {
             tracing::error!("Search failed: {}", e);
@@ -204,7 +232,12 @@ async fn timeline(
     Query(filter): Query<FilterQuery>,
 ) -> impl IntoResponse {
     let limit = filter.limit.unwrap_or(200).min(500);
-    match state.db.get_timeline(limit) {
+    let db_clone = state.db.clone();
+    let result = tokio::task::spawn_blocking(move || db_clone.get_timeline(limit))
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+
+    match result {
         Ok(events) => (StatusCode::OK, Json(events)).into_response(),
         Err(e) => {
             tracing::error!("Timeline query failed: {}", e);
@@ -218,7 +251,12 @@ async fn timeline(
 }
 
 async fn delete_event(State(state): State<AppState>, Path(id): Path<i64>) -> impl IntoResponse {
-    match state.db.delete_event(id) {
+    let db_clone = state.db.clone();
+    let result = tokio::task::spawn_blocking(move || db_clone.delete_event(id))
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+
+    match result {
         Ok(true) => (
             StatusCode::OK,
             Json(serde_json::json!({ "id": id, "status": "deleted" })),
@@ -245,7 +283,12 @@ async fn context_summary(
     Query(filter): Query<FilterQuery>,
 ) -> impl IntoResponse {
     let limit = filter.limit.unwrap_or(10).min(100);
-    match state.db.get_context_summary(limit) {
+    let db_clone = state.db.clone();
+    let result = tokio::task::spawn_blocking(move || db_clone.get_context_summary(limit))
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+
+    match result {
         Ok(ctx) => (
             StatusCode::OK,
             Json(serde_json::json!({

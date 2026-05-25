@@ -16,8 +16,8 @@ const STABLE_TOOLS: &[&str] = &[
 
 const EXPERIMENTAL_TOOLS: &[&str] = &["traz_timeline", "traz_delete", "traz_compress"];
 
-/// Maximum line length accepted from stdin (1 MB).
-const MAX_LINE_LEN: usize = 1_024 * 1_024;
+/// Maximum line length accepted from stdin (10 MB).
+const MAX_LINE_LEN: usize = 10 * 1024 * 1024;
 
 /// Run the MCP (Model Context Protocol) stdio server.
 pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
@@ -92,7 +92,13 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
             }),
 
             "tools/call" => {
-                let result = handle_tool_call(&db, &req, experimental);
+                let db_clone = db.clone();
+                let req_clone = req.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    handle_tool_call(&db_clone, &req_clone, experimental)
+                })
+                .await
+                .unwrap_or_else(|e| tool_err(&format!("Task panicked: {}", e)));
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
 

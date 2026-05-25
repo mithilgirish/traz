@@ -98,8 +98,8 @@ pub fn setup_instructions(tool: &str) -> Result<String> {
             let mut zsh_path = None;
             let mut bash_path = None;
 
-            if let Ok(exe_path) = std::env::current_exe() {
-                if let Some(exe_dir) = exe_path.parent() {
+            if let Ok(exe_path) = std::env::current_exe()
+                && let Some(exe_dir) = exe_path.parent() {
                     // Try exe_dir/scripts/
                     let d1 = exe_dir.join("scripts");
                     if d1.join(zsh_script_name).exists() {
@@ -108,8 +108,8 @@ pub fn setup_instructions(tool: &str) -> Result<String> {
                     }
 
                     // Try exe_dir/../scripts/
-                    if zsh_path.is_none() {
-                        if let Some(parent) = exe_dir.parent() {
+                    if zsh_path.is_none()
+                        && let Some(parent) = exe_dir.parent() {
                             let d2 = parent.join("scripts");
                             if d2.join(zsh_script_name).exists() {
                                 zsh_path = Some(d2.join(zsh_script_name));
@@ -117,19 +117,16 @@ pub fn setup_instructions(tool: &str) -> Result<String> {
                             }
 
                             // Try exe_dir/../../scripts/
-                            if zsh_path.is_none() {
-                                if let Some(grandparent) = parent.parent() {
+                            if zsh_path.is_none()
+                                && let Some(grandparent) = parent.parent() {
                                     let d3 = grandparent.join("scripts");
                                     if d3.join(zsh_script_name).exists() {
                                         zsh_path = Some(d3.join(zsh_script_name));
                                         bash_path = Some(d3.join(bash_script_name));
                                     }
                                 }
-                            }
                         }
-                    }
                 }
-            }
 
             let zsh_str = match zsh_path {
                 Some(p) => p.to_string_lossy().into_owned(),

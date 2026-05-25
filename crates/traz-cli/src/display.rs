@@ -103,8 +103,8 @@ pub fn print_event(event: &Event) {
         println!("  {DIM}│{RESET}  {DIM}info:{RESET}  {first_line}");
     }
 
-    if let Some(ref files) = event.files {
-        if !files.is_empty() {
+    if let Some(ref files) = event.files
+        && !files.is_empty() {
             let file_list = files
                 .iter()
                 .map(|f| format!("{BLUE}{f}{RESET}"))
@@ -112,10 +112,9 @@ pub fn print_event(event: &Event) {
                 .join(&format!("{DIM}, {RESET}"));
             println!("  {DIM}│{RESET}  {DIM}files:{RESET} {}", file_list);
         }
-    }
 
-    if let Some(ref tags) = event.tags {
-        if !tags.is_empty() {
+    if let Some(ref tags) = event.tags
+        && !tags.is_empty() {
             let tag_str = tags
                 .iter()
                 .map(|t| format!("#{t}"))
@@ -123,7 +122,6 @@ pub fn print_event(event: &Event) {
                 .join(" ");
             println!("  {DIM}│{RESET}  {DIM}tags:{RESET}  {YELLOW}{tag_str}{RESET}");
         }
-    }
 
     if let Some(ref diff) = event.diff {
         let line_count = diff.lines().count();
@@ -184,8 +182,8 @@ pub fn print_event_detail(event: &Event) {
         }
     }
 
-    if let Some(ref files) = event.files {
-        if !files.is_empty() {
+    if let Some(ref files) = event.files
+        && !files.is_empty() {
             println!("  {DIM}├──{RESET} {BOLD}Changed Files{RESET}");
             for (idx, f) in files.iter().enumerate() {
                 let guide = if idx == files.len() - 1 {
@@ -196,10 +194,9 @@ pub fn print_event_detail(event: &Event) {
                 println!("{}{BLUE}{}{RESET}", guide, f);
             }
         }
-    }
 
-    if let Some(ref tags) = event.tags {
-        if !tags.is_empty() {
+    if let Some(ref tags) = event.tags
+        && !tags.is_empty() {
             let tag_str = tags
                 .iter()
                 .map(|t| format!("#{t}"))
@@ -207,7 +204,6 @@ pub fn print_event_detail(event: &Event) {
                 .join(" ");
             println!("  {DIM}├──{RESET} {DIM}Tags:{RESET}     {YELLOW}{tag_str}{RESET}");
         }
-    }
 
     if let Some(ref diff) = event.diff {
         let line_count = diff.lines().count();

@@ -13,42 +13,37 @@ pub fn handle_input(app: &mut App, key: KeyEvent) -> anyhow::Result<bool> {
             KeyCode::Up | KeyCode::Char('k') => {
                 app.selected = app.selected.saturating_sub(1);
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if !app.events.is_empty() {
+            KeyCode::Down | KeyCode::Char('j')
+                if !app.events.is_empty() => {
                     app.selected = min(app.selected + 1, app.events.len() - 1);
                 }
-            }
             KeyCode::Enter => {
-                if !app.events.is_empty() {
-                    if let Some(id) = app.events[app.selected].id {
+                if !app.events.is_empty()
+                    && let Some(id) = app.events[app.selected].id {
                         app.scroll_offset = 0;
                         app.mode = AppMode::Detail(id);
                     }
-                }
             }
             KeyCode::Char('d') => {
-                if !app.events.is_empty() {
-                    if let Some(id) = app.events[app.selected].id {
+                if !app.events.is_empty()
+                    && let Some(id) = app.events[app.selected].id {
                         app.scroll_offset = 0;
                         app.mode = AppMode::Diff(id);
                     }
-                }
             }
             KeyCode::Char('u') => {
-                if !app.events.is_empty() {
-                    if let Some(id) = app.events[app.selected].id {
+                if !app.events.is_empty()
+                    && let Some(id) = app.events[app.selected].id {
                         app.previous_mode = Some(AppMode::List);
                         app.mode = AppMode::Confirm(ConfirmAction::Undo(id));
                     }
-                }
             }
             KeyCode::Char('r') => {
-                if !app.events.is_empty() {
-                    if let Some(id) = app.events[app.selected].id {
+                if !app.events.is_empty()
+                    && let Some(id) = app.events[app.selected].id {
                         app.previous_mode = Some(AppMode::List);
                         app.mode = AppMode::Confirm(ConfirmAction::Rewind(id));
                     }
-                }
             }
             KeyCode::Char('c') => {
                 app.previous_mode = Some(AppMode::List);

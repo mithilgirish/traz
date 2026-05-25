@@ -13,3 +13,4 @@ anyhow = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 traz-embeddings = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }

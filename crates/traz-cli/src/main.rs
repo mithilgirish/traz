@@ -329,11 +329,10 @@ async fn run_command(
                     .map_err(|e| anyhow::anyhow!("Invalid metadata JSON: {}", e))?;
                 event = event.with_metadata(parsed);
             }
-            if diff {
-                if let Ok(Some(d)) = traz_integrations::git::get_uncommitted_diff() {
+            if diff
+                && let Ok(Some(d)) = traz_integrations::git::get_uncommitted_diff() {
                     event = event.with_diff(d);
                 }
-            }
 
             let id = db.insert_event(&event)?;
             print_success(&format!("Event #{} added.", id));

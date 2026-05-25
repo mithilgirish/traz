@@ -170,59 +170,78 @@ impl Db {
         Ok((count as usize, epoch_id))
     }
 
-    /// Generate embeddings for any events that are missing them.
-    /// Returns the number of embeddings generated.
     pub fn backfill_missing_embeddings(&self) -> Result<usize> {
         if !self.config.embeddings_enabled {
             anyhow::bail!("Embeddings are not enabled in the configuration");
         }
 
-        let mut events_to_process = Vec::new();
+        let mut missing_ids = Vec::new();
         {
             let conn = self.lock_conn();
             let mut stmt = conn.prepare(
-                "SELECT id, title, summary FROM events 
+                "SELECT id FROM events 
                  WHERE id NOT IN (SELECT event_id FROM event_embeddings)",
             )?;
-
             let mut rows = stmt.query([])?;
             while let Some(row) = rows.next()? {
                 let id: i64 = row.get(0)?;
-                let title: String = row.get(1)?;
-                let summary: Option<String> = row.get(2)?;
-                events_to_process.push((id, title, summary));
+                missing_ids.push(id);
             }
         }
 
         let mut count = 0;
         let model_version = "all-MiniLM-L6-v2";
+        let chunk_size = 100;
 
-        for (id, title, summary) in events_to_process {
-            let text = format!("{} {}", title, summary.as_deref().unwrap_or_default());
-            match traz_embeddings::embed_text(&text) {
-                Ok(vec) => {
-                    let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
-                    let created_at = chrono::Utc::now().to_rfc3339();
-                    let conn = self.lock_conn();
-                    if let Err(e) = conn.execute(
-                        "INSERT INTO event_embeddings (event_id, vector, model_version, created_at)
-                         VALUES (?1, ?2, ?3, ?4)",
-                        params![id, bytes, model_version, created_at],
+        for chunk in missing_ids.chunks(chunk_size) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!("SELECT id, title, summary FROM events WHERE id IN ({})", placeholders);
+            
+            let mut batch = Vec::new();
+            {
+                let conn = self.lock_conn();
+                let mut stmt = conn.prepare(&sql)?;
+                let mut rows = stmt.query(rusqlite::params_from_iter(chunk))?;
+                while let Some(row) = rows.next()? {
+                    let id: i64 = row.get(0)?;
+                    let title: String = row.get(1)?;
+                    let summary: Option<String> = row.get(2)?;
+                    batch.push((id, title, summary));
+                }
+            }
+            
+            let mut embeddings_batch = Vec::new();
+            for (id, title, summary) in batch {
+                let text = format!("{} {}", title, summary.as_deref().unwrap_or_default());
+                match traz_embeddings::embed_text(&text) {
+                    Ok(vec) => {
+                        let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
+                        embeddings_batch.push((id, bytes));
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: Failed to generate event embedding for id {}: {}", id, e);
+                    }
+                }
+            }
+            
+            if !embeddings_batch.is_empty() {
+                let mut guard = match self.conn.lock() {
+                    Ok(g) => g,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                let tx = guard.transaction()?;
+                let created_at = chrono::Utc::now().to_rfc3339();
+                for (id, bytes) in embeddings_batch {
+                    if let Err(e) = tx.execute(
+                        "INSERT INTO event_embeddings (event_id, vector, model_version, created_at) VALUES (?1, ?2, ?3, ?4)",
+                        params![id, bytes, model_version, &created_at],
                     ) {
-                        eprintln!(
-                            "Warning: Failed to insert event embedding for id {}: {}",
-                            id, e
-                        );
+                        eprintln!("Warning: Failed to insert event embedding for id {}: {}", id, e);
                     } else {
                         count += 1;
                     }
                 }
-                Err(e) => {
-                    eprintln!(
-                        "Warning: Failed to generate event embedding for id {}: {}",
-                        id, e
-                    );
-                }
+                tx.commit()?;
             }
         }
 

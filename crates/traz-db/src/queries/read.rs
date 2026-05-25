@@ -250,21 +250,21 @@ impl Db {
                         summary.lines().next().unwrap_or(summary)
                     ));
                 }
-                if let Some(ref files) = event.files {
-                    if !files.is_empty() {
-                        ctx.push_str(&format!("- **Files:** {}\n", files.join(", ")));
-                    }
+                if let Some(ref files) = event.files
+                    && !files.is_empty()
+                {
+                    ctx.push_str(&format!("- **Files:** {}\n", files.join(", ")));
                 }
-                if let Some(ref tags) = event.tags {
-                    if !tags.is_empty() {
-                        ctx.push_str(&format!(
-                            "- **Tags:** {}\n",
-                            tags.iter()
-                                .map(|t| format!("#{}", t))
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        ));
-                    }
+                if let Some(ref tags) = event.tags
+                    && !tags.is_empty()
+                {
+                    ctx.push_str(&format!(
+                        "- **Tags:** {}\n",
+                        tags.iter()
+                            .map(|t| format!("#{}", t))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    ));
                 }
                 if event.diff.is_some() {
                     ctx.push_str("- **Has diff:** yes\n");
@@ -282,34 +282,59 @@ impl Db {
 
         let query_vec = traz_embeddings::embed_text(query)?;
 
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(
-            "SELECT e.id, e.uuid, e.tool, e.type, e.title, e.summary, e.files, e.metadata, e.tags, e.session_id, e.diff, e.timestamp, e.created_at, ee.vector
-             FROM events e
-             INNER JOIN event_embeddings ee ON e.id = ee.event_id"
-        )?;
+        let mut top_matches = Vec::new();
+        {
+            let conn = self.lock_conn();
+            let mut stmt = conn.prepare("SELECT event_id, vector FROM event_embeddings")?;
+            let mut rows = stmt.query([])?;
 
-        let mut results = Vec::new();
-        let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
+                let event_id: i64 = row.get(0)?;
+                let vector_bytes: Vec<u8> = row.get(1)?;
+                let event_vec: Vec<f32> = vector_bytes
+                    .chunks(4)
+                    .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+                    .collect();
 
-        while let Some(row) = rows.next()? {
-            let event = row_to_event(row)?;
-            let vector_bytes: Vec<u8> = row.get(13)?;
-            let event_vec: Vec<f32> = vector_bytes
-                .chunks(4)
-                .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
-                .collect();
-
-            let similarity = traz_embeddings::cosine_similarity(&query_vec, &event_vec);
-            let similarity = similarity.clamp(0.0, 1.0);
-            results.push((event, similarity));
+                let similarity = traz_embeddings::cosine_similarity(&query_vec, &event_vec);
+                let similarity = similarity.clamp(0.0, 1.0);
+                top_matches.push((event_id, similarity));
+            }
         }
 
         // Sort by similarity descending
-        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
+        top_matches.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         // Take top `limit`
-        results.truncate(limit);
+        top_matches.truncate(limit);
+
+        if top_matches.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids: Vec<String> = top_matches.iter().map(|(id, _)| id.to_string()).collect();
+        let placeholders = ids.join(",");
+        let sql = format!(
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at 
+             FROM events WHERE id IN ({})",
+            placeholders
+        );
+
+        let conn = self.lock_conn();
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query([])?;
+        let mut events_map = std::collections::HashMap::new();
+
+        while let Some(row) = rows.next()? {
+            let event = row_to_event(row)?;
+            events_map.insert(event.id, event);
+        }
+
+        let mut results = Vec::new();
+        for (id, similarity) in top_matches {
+            if let Some(event) = events_map.remove(&Some(id)) {
+                results.push((event, similarity));
+            }
+        }
 
         Ok(results)
     }
@@ -326,11 +351,9 @@ impl Db {
 
         // 1. Keyword search (Sparse)
         if let Ok(keyword_events) = self.search_events(query, filters, limit) {
-            let mut rank = 1;
-            for event in keyword_events {
+            for (rank, event) in (1..).zip(keyword_events) {
                 let rrf_score = 1.0 / (rrf_k + rank as f32);
                 results.insert(event.id, (event, rrf_score));
-                rank += 1;
             }
         }
 
@@ -345,15 +368,15 @@ impl Db {
                         continue;
                     }
 
-                    if let Some(t) = filters.tool {
-                        if !event.tool.eq_ignore_ascii_case(t) {
-                            continue;
-                        }
+                    if let Some(t) = filters.tool
+                        && !event.tool.eq_ignore_ascii_case(t)
+                    {
+                        continue;
                     }
-                    if let Some(et) = filters.event_type {
-                        if !event.event_type.eq_ignore_ascii_case(et) {
-                            continue;
-                        }
+                    if let Some(et) = filters.event_type
+                        && !event.event_type.eq_ignore_ascii_case(et)
+                    {
+                        continue;
                     }
                     if let Some(tag) = filters.tag {
                         if let Some(tags) = &event.tags {
@@ -364,10 +387,10 @@ impl Db {
                             continue;
                         }
                     }
-                    if let Some(since) = filters.since {
-                        if event.timestamp < since {
-                            continue;
-                        }
+                    if let Some(since) = filters.since
+                        && event.timestamp < since
+                    {
+                        continue;
                     }
 
                     let rrf_score = 1.0 / (rrf_k + rank as f32);

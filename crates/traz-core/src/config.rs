@@ -75,10 +75,10 @@ impl TrazConfig {
         config.db_path = db_path;
 
         // Environment port override
-        if let Ok(port_str) = std::env::var("TRAZ_PORT") {
-            if let Ok(p) = port_str.parse() {
-                config.api_port = p;
-            }
+        if let Ok(port_str) = std::env::var("TRAZ_PORT")
+            && let Ok(p) = port_str.parse()
+        {
+            config.api_port = p;
         }
 
         config
