@@ -208,6 +208,10 @@ pub enum Commands {
 
     /// Generate a context summary for AI agents (markdown)
     Context {
+        /// Optional semantic query to fetch only context relevant to your current task
+        #[arg(short, long)]
+        query: Option<String>,
+
         /// Number of recent events to include
         #[arg(short, long, default_value_t = 10)]
         limit: u32,

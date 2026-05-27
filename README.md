@@ -52,6 +52,8 @@ No cloud. No vendor lock-in. No sync accounts. Just a lightweight SQLite store l
 - **Searchable debugging history** — find that fix you made three days ago in two seconds
 - **Timeline-based workflow tracking** — see how your thinking evolved across sessions
 - **MCP-compatible** — plug into any MCP-supporting tool without extra config
+- **AI Context Checkpointing** — native escape hatches for long-running AI sessions to prevent context window bloat
+- **Token-Optimized RAG** — dense formatting for AI context retrieval to save tokens and improve inference
 - **SQLite-powered** — zero-dependency, zero-overhead storage
 - **CLI-first** — fast, scriptable, composable
 - **Zero cloud dependency** — your context never leaves your machine
@@ -231,10 +233,10 @@ Point your AI tool at `localhost:7474` and it gains access to your full engineer
 - [x] Semantic search with local embeddings
 - [x] Local vector indexing
 - [x] AI trace visualization (TUI)
+- [x] Context compression for long-running projects
+- [x] Workflow snapshots (Checkpoints)
 
 **Future**
-- [ ] Context compression for long-running projects
-- [ ] Workflow snapshots
 - [ ] VSCode extension
 
 ---

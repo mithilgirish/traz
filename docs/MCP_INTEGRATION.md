@@ -17,8 +17,15 @@ Once connected, your AI agent has access to the following capabilities:
 - **`traz_recent`**: Fetch the most recent engineering events to establish context at the start of a session.
 - **`traz_search`**: Search the timeline for specific keywords or concepts (e.g., "how does auth work?").
 - **`traz_add`**: Push a new event to the timeline. AI tools use this to document their own refactors or bug fixes.
-- **`traz_context`**: Generate a structured markdown summary of the current project state.
+- **`traz_context`**: Generate a structured, token-optimized markdown summary of the current project state. Includes dense RAG formatting to minimize context consumption.
 - **`traz_stats`**: View analytics on which tools are contributing the most events.
+- **`traz_checkpoint`**: Snapshot the current conversational state. Used by AI agents to securely save their progress when the context window becomes too bloated, enabling a safe "fresh chat" reset.
+
+## Dealing With Context Bloat
+
+When AI chats go on for too long, context windows fill up, causing AI performance to drop (the "Lost in the Middle" problem). `traz` solves this natively through two mechanisms:
+1. **Dense RAG Formatting**: `traz_context` automatically strips tags, caps file lists, and truncates long summaries to provide maximum insight using minimum tokens.
+2. **Session Checkpointing**: When an agent detects context bloat, it can call `traz_checkpoint` to summarize its current state, then instruct the user to start a new chat. The new chat reads the checkpoint and resumes instantly.
 
 ## Client Setup
 

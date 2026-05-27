@@ -12,6 +12,7 @@ const STABLE_TOOLS: &[&str] = &[
     "traz_add",
     "traz_context",
     "traz_stats",
+    "traz_checkpoint",
 ];
 
 const EXPERIMENTAL_TOOLS: &[&str] = &["traz_timeline", "traz_delete", "traz_compress"];
@@ -120,7 +121,7 @@ fn build_tool_definitions(experimental: bool) -> Value {
     let mut tools = vec![
         json!({
             "name": "traz_recent",
-            "description": "Get recent engineering events from the traz local timeline. Use this to understand what was recently worked on, debugged, or decided.",
+            "description": "Get recent engineering events from the traz local timeline. If you are starting a fresh chat to reset context bloat, use this to read the latest 'checkpoint' event.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -160,10 +161,11 @@ fn build_tool_definitions(experimental: bool) -> Value {
         }),
         json!({
             "name": "traz_context",
-            "description": "Get a structured markdown summary of recent engineering activity, perfect for establishing context before starting a task.",
+            "description": "Get a structured markdown summary of recent activity. Provide a 'query' to retrieve only relevant context via RAG. If you are starting a fresh chat to reset context bloat, use this to instantly regain your bearing without reading old conversation history.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "query": { "type": "string", "description": "Optional search query to fetch only context relevant to your current task." },
                     "limit": { "type": "number", "description": "Number of recent events to include (default 10)" }
                 }
             }
@@ -172,6 +174,17 @@ fn build_tool_definitions(experimental: bool) -> Value {
             "name": "traz_stats",
             "description": "Get database statistics including total events and event counts per tool.",
             "inputSchema": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "name": "traz_checkpoint",
+            "description": "When your AI chat gets too long, context bloats and performance drops. Call this tool to generate a 'Checkpoint' event summarizing all progress and current state. Then ask the user to start a fresh chat and read this checkpoint. This resets your context window.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string", "description": "A dense summary of what was accomplished, what failed, and exact next steps." }
+                },
+                "required": ["summary"]
+            }
         }),
     ];
 
@@ -328,7 +341,8 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|l| l.as_u64())
                 .unwrap_or(10)
                 .min(100) as u32;
-            match db.get_context_summary(limit) {
+            let query = args.get("query").and_then(|q| q.as_str());
+            match db.get_context_summary(query, limit) {
                 Ok(ctx) => tool_ok(&ctx),
                 Err(e) => tool_err(&e.to_string()),
             }
@@ -376,6 +390,30 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 }
             } else {
                 tool_err("Missing required arguments: days, summary")
+            }
+        }
+        "traz_checkpoint" => {
+            let summary = args
+                .get("summary")
+                .and_then(|s| s.as_str())
+                .unwrap_or("No summary provided.")
+                .to_string();
+
+            let event = Event::new(
+                "ai-agent".to_string(),
+                "checkpoint".to_string(),
+                "Session Checkpoint".to_string(),
+                Some(summary),
+                None,
+                None,
+            );
+
+            match db.insert_event(&event) {
+                Ok(id) => tool_ok(&format!(
+                    "Checkpoint created with ID {}. Please instruct the user to start a new chat session to clear context bloat.",
+                    id
+                )),
+                Err(e) => tool_err(&e.to_string()),
             }
         }
         _ => tool_err(&format!("Unknown tool: {}", name)),

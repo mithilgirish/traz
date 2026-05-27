@@ -283,8 +283,9 @@ async fn context_summary(
     Query(filter): Query<FilterQuery>,
 ) -> impl IntoResponse {
     let limit = filter.limit.unwrap_or(10).min(100);
+    let search = filter.search.clone();
     let db_clone = state.db.clone();
-    let result = tokio::task::spawn_blocking(move || db_clone.get_context_summary(limit))
+    let result = tokio::task::spawn_blocking(move || db_clone.get_context_summary(search.as_deref(), limit))
         .await
         .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
 

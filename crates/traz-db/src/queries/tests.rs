@@ -278,12 +278,38 @@ mod tests {
         db.insert_event(&sample_event("claude", "bug_fix", "Fixed race"))
             .unwrap();
 
-        let ctx = db.get_context_summary(10).unwrap();
+        let ctx = db.get_context_summary(None, 10).unwrap();
         assert!(ctx.contains("Engineering Context Summary"));
         assert!(ctx.contains("cursor"));
         assert!(ctx.contains("Built auth"));
         assert!(ctx.contains("Fixed race"));
         assert!(ctx.contains("#security"));
+    }
+
+    #[test]
+    fn test_context_summary_rag() {
+        let conn = Connection::open_in_memory().unwrap();
+        let db = Db {
+            conn: Mutex::new(conn),
+            path: PathBuf::from(":memory:"),
+            config: traz_core::TrazConfig {
+                db_path: PathBuf::from(":memory:"),
+                api_port: 4000,
+                embeddings_enabled: true, // Needed for semantic search
+                embeddings_model_path: None,
+            },
+        };
+        db.migrate().unwrap();
+
+        db.insert_event(&sample_event("cursor", "feature", "Built authentication system"))
+            .unwrap();
+        db.insert_event(&sample_event("claude", "bug_fix", "Fixed CSS layout issues"))
+            .unwrap();
+
+        let ctx = db.get_context_summary(Some("auth login"), 10).unwrap();
+        assert!(ctx.contains("Relevant Context (RAG"));
+        assert!(ctx.contains("Built authentication system"));
+        assert!(!ctx.contains("CSS layout"));
     }
 
     #[test]

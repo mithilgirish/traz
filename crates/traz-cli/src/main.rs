@@ -473,8 +473,8 @@ async fn run_command(
             }
         }
 
-        Commands::Context { limit, json } => {
-            let ctx = db.get_context_summary(limit)?;
+        Commands::Context { query, limit, json } => {
+            let ctx = db.get_context_summary(query.as_deref(), limit)?;
             if json {
                 let data = serde_json::json!({
                     "context": ctx,
