@@ -182,6 +182,9 @@ async fn run_command(
             tool,
             event_type,
             json,
+            dense,
+            budget,
+            deduplicate,
         } => {
             let events = if tool.is_some() || event_type.is_some() {
                 db.get_filtered_events(limit, tool, event_type, None, None)?
@@ -192,6 +195,20 @@ async fn run_command(
                 print_empty("No events yet. Add one with `traz add`.");
             } else if json {
                 print_events_json(&events);
+            } else if dense {
+                let format = traz_core::OutputFormat::Dense;
+                let mut token_budget = match budget {
+                    Some(n) => traz_core::TokenBudget::new(n),
+                    None => traz_core::TokenBudget::unlimited(),
+                };
+                let output = traz_core::build_optimized_context(
+                    events,
+                    format,
+                    &mut token_budget,
+                    deduplicate,
+                    Some("Recent Events"),
+                );
+                print!("{}\n", output);
             } else {
                 print_header(&format!("Recent Events ({})", events.len()));
                 print_events(&events);
@@ -473,13 +490,27 @@ async fn run_command(
             }
         }
 
-        Commands::Context { query, limit, json } => {
-            let ctx = db.get_context_summary(query.as_deref(), limit)?;
+        Commands::Context {
+            query,
+            limit,
+            json,
+            dense,
+            budget,
+            deduplicate,
+        } => {
+            let format = if dense {
+                traz_core::OutputFormat::Dense
+            } else {
+                traz_core::OutputFormat::Markdown
+            };
+            let ctx =
+                db.get_context_optimized(query.as_deref(), limit, format, budget, deduplicate)?;
             if json {
                 let data = serde_json::json!({
                     "context": ctx,
-                    "format": "markdown",
+                    "format": if dense { "dense" } else { "markdown" },
                     "version": env!("CARGO_PKG_VERSION"),
+                    "token_estimate": traz_core::estimate_tokens(&ctx),
                 });
                 println!(
                     "{}",

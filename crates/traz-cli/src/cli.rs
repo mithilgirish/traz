@@ -64,6 +64,18 @@ pub enum Commands {
         /// Output as raw JSON
         #[arg(long, default_value_t = false)]
         json: bool,
+
+        /// Use dense AI-optimized format (~50-70% fewer tokens)
+        #[arg(long, default_value_t = false)]
+        dense: bool,
+
+        /// Maximum token budget (truncates output to fit)
+        #[arg(long)]
+        budget: Option<usize>,
+
+        /// Merge near-duplicate events
+        #[arg(long, default_value_t = false)]
+        deduplicate: bool,
     },
 
     /// Show the full chronological timeline (oldest first)
@@ -219,6 +231,18 @@ pub enum Commands {
         /// Output as raw JSON instead of markdown
         #[arg(long, default_value_t = false)]
         json: bool,
+
+        /// Use dense AI-optimized format (~50-70% fewer tokens)
+        #[arg(long, default_value_t = false)]
+        dense: bool,
+
+        /// Maximum token budget (truncates output to fit)
+        #[arg(long)]
+        budget: Option<usize>,
+
+        /// Merge near-duplicate events
+        #[arg(long, default_value_t = false)]
+        deduplicate: bool,
     },
 
     /// Show database statistics and storage info

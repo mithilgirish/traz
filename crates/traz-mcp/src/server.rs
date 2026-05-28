@@ -121,11 +121,14 @@ fn build_tool_definitions(experimental: bool) -> Value {
     let mut tools = vec![
         json!({
             "name": "traz_recent",
-            "description": "Get recent engineering events from the traz local timeline. If you are starting a fresh chat to reset context bloat, use this to read the latest 'checkpoint' event.",
+            "description": "Get recent engineering events from the traz local timeline. If you are starting a fresh chat to reset context bloat, use this to read the latest 'checkpoint' event. Supports token-optimized output: pass format='dense' to get ~50-70% fewer tokens.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "limit": { "type": "number", "description": "Number of events to retrieve (default 10, max 100)" }
+                    "limit": { "type": "number", "description": "Number of events to retrieve (default 10, max 100)" },
+                    "format": { "type": "string", "description": "Output format: 'markdown' (default, human-readable) or 'dense' (AI-optimized, ~50-70% fewer tokens)" },
+                    "max_tokens": { "type": "number", "description": "Optional token budget. Output is truncated to fit within this many tokens." },
+                    "deduplicate": { "type": "boolean", "description": "Merge near-duplicate events to save tokens (default false)" }
                 }
             }
         }),
@@ -161,12 +164,15 @@ fn build_tool_definitions(experimental: bool) -> Value {
         }),
         json!({
             "name": "traz_context",
-            "description": "Get a structured markdown summary of recent activity. Provide a 'query' to retrieve only relevant context via RAG. If you are starting a fresh chat to reset context bloat, use this to instantly regain your bearing without reading old conversation history.",
+            "description": "Get a structured summary of recent activity, optimized for AI agent consumption. Provide a 'query' to retrieve only relevant context via RAG. Use format='dense' for ~50-70% token savings, and max_tokens to enforce a budget. If you are starting a fresh chat to reset context bloat, use this to instantly regain your bearing without reading old conversation history.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Optional search query to fetch only context relevant to your current task." },
-                    "limit": { "type": "number", "description": "Number of recent events to include (default 10)" }
+                    "limit": { "type": "number", "description": "Number of recent events to include (default 10)" },
+                    "format": { "type": "string", "description": "Output format: 'markdown' (default) or 'dense' (AI-optimized, uses pipe-delimited single-line format, type abbreviations, diff summaries — ~50-70% fewer tokens)" },
+                    "max_tokens": { "type": "number", "description": "Optional token budget. Output is automatically truncated to fit, using progressive detail reduction." },
+                    "deduplicate": { "type": "boolean", "description": "Merge near-duplicate events to save tokens (default false). Uses Jaccard similarity on titles." }
                 }
             }
         }),
@@ -240,8 +246,34 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|l| l.as_u64())
                 .unwrap_or(10)
                 .min(100) as u32;
+            let format = traz_core::OutputFormat::from_str_opt(
+                args.get("format").and_then(|f| f.as_str()),
+            );
+            let max_tokens = args.get("max_tokens").and_then(|m| m.as_u64()).map(|m| m as usize);
+            let deduplicate = args.get("deduplicate").and_then(|d| d.as_bool()).unwrap_or(false);
+
             match db.get_recent_events(limit) {
-                Ok(events) => tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default()),
+                Ok(events) => {
+                    match format {
+                        traz_core::OutputFormat::Dense => {
+                            let mut budget = match max_tokens {
+                                Some(n) => traz_core::TokenBudget::new(n),
+                                None => traz_core::TokenBudget::unlimited(),
+                            };
+                            let output = traz_core::build_optimized_context(
+                                events,
+                                format,
+                                &mut budget,
+                                deduplicate,
+                                Some("Recent Events"),
+                            );
+                            tool_ok(&output)
+                        }
+                        traz_core::OutputFormat::Markdown => {
+                            tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default())
+                        }
+                    }
+                }
                 Err(e) => tool_err(&e.to_string()),
             }
         }
@@ -342,7 +374,13 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .unwrap_or(10)
                 .min(100) as u32;
             let query = args.get("query").and_then(|q| q.as_str());
-            match db.get_context_summary(query, limit) {
+            let format = traz_core::OutputFormat::from_str_opt(
+                args.get("format").and_then(|f| f.as_str()),
+            );
+            let max_tokens = args.get("max_tokens").and_then(|m| m.as_u64()).map(|m| m as usize);
+            let deduplicate = args.get("deduplicate").and_then(|d| d.as_bool()).unwrap_or(false);
+
+            match db.get_context_optimized(query, limit, format, max_tokens, deduplicate) {
                 Ok(ctx) => tool_ok(&ctx),
                 Err(e) => tool_err(&e.to_string()),
             }

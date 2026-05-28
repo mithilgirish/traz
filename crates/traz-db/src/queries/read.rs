@@ -218,101 +218,116 @@ impl Db {
 
     /// Generate a structured context summary for AI agents.
     pub fn get_context_summary(&self, query: Option<&str>, limit: u32) -> Result<String> {
+        // Backward-compatible wrapper: markdown format, unlimited budget, no dedup.
+        self.get_context_optimized(
+            query,
+            limit,
+            traz_core::OutputFormat::Markdown,
+            None,
+            false,
+        )
+    }
+
+    /// Generate a token-optimized context summary for AI agents.
+    ///
+    /// Supports:
+    /// - `format`: Markdown (human-readable) or Dense (AI-optimized, ~50-70% fewer tokens)
+    /// - `max_tokens`: Optional token budget — output is truncated to fit
+    /// - `deduplicate`: Merge near-duplicate events to save tokens
+    pub fn get_context_optimized(
+        &self,
+        query: Option<&str>,
+        limit: u32,
+        format: traz_core::OutputFormat,
+        max_tokens: Option<usize>,
+        deduplicate: bool,
+    ) -> Result<String> {
         let total = self.count_events()?;
         let stats = self.get_stats()?;
-        
+
+        let mut budget = match max_tokens {
+            Some(n) => traz_core::TokenBudget::new(n),
+            None => traz_core::TokenBudget::unlimited(),
+        };
+
         let mut ctx = String::new();
-        ctx.push_str("# traz — Engineering Context Summary\n\n");
 
-        // Stats
-        ctx.push_str(&format!("**Total events:** {}\n\n", total));
-
-        if !stats.is_empty() {
-            ctx.push_str("## Tools Used\n");
-            for (tool, count) in &stats {
-                ctx.push_str(&format!("- **{}**: {} events\n", tool, count));
+        // ── Header ──────────────────────────────────────────────
+        let header = match format {
+            traz_core::OutputFormat::Markdown => {
+                format!("# traz — Engineering Context Summary\n\n**Total events:** {total}\n\n")
             }
-            ctx.push('\n');
+            traz_core::OutputFormat::Dense => {
+                format!("traz|events:{total}\n")
+            }
+        };
+        if budget.would_fit(&header) {
+            budget.consume(&header);
+            ctx.push_str(&header);
         }
 
+        // ── Tool stats ──────────────────────────────────────────
+        if !stats.is_empty() {
+            let stats_block = match format {
+                traz_core::OutputFormat::Markdown => {
+                    let mut s = String::from("## Tools Used\n");
+                    for (tool, count) in &stats {
+                        s.push_str(&format!("- **{}**: {} events\n", tool, count));
+                    }
+                    s.push('\n');
+                    s
+                }
+                traz_core::OutputFormat::Dense => {
+                    let tools: Vec<String> = stats
+                        .iter()
+                        .map(|(tool, count)| format!("{tool}:{count}"))
+                        .collect();
+                    format!("tools|{}\n", tools.join(","))
+                }
+            };
+            if budget.would_fit(&stats_block) {
+                budget.consume(&stats_block);
+                ctx.push_str(&stats_block);
+            }
+        }
+
+        // ── Fetch events ────────────────────────────────────────
         let is_rag = query.is_some();
         let events = if let Some(q) = query {
-            // RAG path: Use hybrid search to get most relevant events
             let search_results = self.hybrid_search(q, &SearchFilters::default(), limit)?;
             search_results.into_iter().map(|(e, _)| e).collect()
         } else {
-            // Default path: Just get recent events
             self.get_recent_events(limit)?
         };
 
-        if !events.is_empty() {
-            if is_rag {
-                ctx.push_str(&format!("## Relevant Context (RAG, max {})\n\n", events.len()));
-            } else {
-                ctx.push_str(&format!("## Recent Activity (last {})\n\n", events.len()));
-            }
-            
-            for event in &events {
-                let ts = event.timestamp.format("%Y-%m-%d %H:%M UTC");
-                ctx.push_str(&format!("### {} [{}] — {}\n", event.title, event.tool, ts));
-                ctx.push_str(&format!("- **Type:** {}\n", event.event_type));
+        // ── Build context with optimizations ────────────────────
+        let section_header = if is_rag {
+            Some(format!(
+                "## Relevant Context (RAG, {} results)",
+                events.len()
+            ))
+        } else {
+            Some(format!("## Recent Activity (last {})", events.len()))
+        };
 
-                if let Some(ref summary) = event.summary {
-                    if is_rag {
-                        // Token Reduction: Truncate summary for RAG
-                        let sum_text = summary.trim();
-                        if sum_text.len() > 300 {
-                            let mut truncated = sum_text.chars().take(300).collect::<String>();
-                            truncated.push_str("... (truncated)");
-                            ctx.push_str(&format!("- **Summary:** {}\n", truncated));
-                        } else {
-                            // Replace newlines with spaces to keep it dense
-                            let dense_sum = sum_text.replace('\n', " ");
-                            ctx.push_str(&format!("- **Summary:** {}\n", dense_sum));
-                        }
-                    } else {
-                        ctx.push_str(&format!(
-                            "- **Summary:** {}\n",
-                            summary.lines().next().unwrap_or(summary)
-                        ));
-                    }
-                }
-                if let Some(ref files) = event.files
-                    && !files.is_empty()
-                {
-                    if is_rag {
-                        // Token Reduction: Limit to top 3 files
-                        if files.len() > 3 {
-                            let top_files = files.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
-                            ctx.push_str(&format!("- **Files:** {}, ... (+{} more)\n", top_files, files.len() - 3));
-                        } else {
-                            ctx.push_str(&format!("- **Files:** {}\n", files.join(", ")));
-                        }
-                    } else {
-                        ctx.push_str(&format!("- **Files:** {}\n", files.join(", ")));
-                    }
-                }
-                
-                // Token Reduction: Omit tags entirely in RAG mode
-                if !is_rag {
-                    if let Some(ref tags) = event.tags
-                        && !tags.is_empty()
-                    {
-                        ctx.push_str(&format!(
-                            "- **Tags:** {}\n",
-                            tags.iter()
-                                .map(|t| format!("#{}", t))
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        ));
-                    }
-                }
-                
-                if event.diff.is_some() {
-                    ctx.push_str("- **Has diff:** yes\n");
-                }
-                ctx.push('\n');
-            }
+        let optimized = traz_core::build_optimized_context(
+            events,
+            format,
+            &mut budget,
+            deduplicate,
+            section_header.as_deref(),
+        );
+
+        ctx.push_str(&optimized);
+
+        // ── Budget usage footer (dense only) ────────────────────
+        if matches!(format, traz_core::OutputFormat::Dense) && !budget.is_unlimited() {
+            let footer = format!(
+                "---budget|used:{}|max:{}\n",
+                budget.max_tokens - budget.remaining(),
+                budget.max_tokens
+            );
+            ctx.push_str(&footer);
         }
 
         Ok(ctx)
