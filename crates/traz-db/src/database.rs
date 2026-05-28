@@ -48,6 +48,16 @@ impl Db {
         &self.path
     }
 
+    /// Check if the compiled SQLite version has FTS5 support enabled.
+    pub fn check_fts5_support(&self) -> bool {
+        let conn = self.lock_conn();
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE temp.temp_fts USING fts5(dummy);
+             DROP TABLE temp.temp_fts;",
+        )
+        .is_ok()
+    }
+
     /// Acquire the connection lock, recovering from a poisoned mutex
     /// instead of panicking the server.
     pub(crate) fn lock_conn(&self) -> std::sync::MutexGuard<'_, Connection> {

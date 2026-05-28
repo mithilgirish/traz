@@ -50,7 +50,16 @@ impl Db {
                     Some(bytes)
                 }
                 Err(e) => {
-                    eprintln!("Warning: Failed to generate event embedding: {}", e);
+                    if !traz_embeddings::is_embedding_model_downloaded() {
+                        eprintln!(
+                            "Warning: Embedding model is not downloaded. Run `traz init --with-embeddings` to generate semantic vectors."
+                        );
+                    } else {
+                        eprintln!(
+                            "Warning: Failed to generate event embedding: {}. Run `traz init --with-embeddings` to re-download if corrupted.",
+                            e
+                        );
+                    }
                     None
                 }
             }
@@ -124,7 +133,7 @@ impl Db {
 
         // 1. Find how many events we are compressing.
         let count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM events WHERE timestamp < datetime('now', '-' || ?1 || ' days') AND type != 'epoch'",
+            "SELECT COUNT(*) FROM events WHERE datetime(timestamp) < datetime('now', '-' || ?1 || ' days') AND type != 'epoch'",
             params![older_than_days],
             |row| row.get(0)
         )?;
@@ -135,7 +144,7 @@ impl Db {
 
         // 2. Delete the old events.
         tx.execute(
-            "DELETE FROM events WHERE timestamp < datetime('now', '-' || ?1 || ' days') AND type != 'epoch'",
+            "DELETE FROM events WHERE datetime(timestamp) < datetime('now', '-' || ?1 || ' days') AND type != 'epoch'",
             params![older_than_days]
         )?;
 

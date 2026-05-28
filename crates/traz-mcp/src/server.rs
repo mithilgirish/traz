@@ -246,34 +246,37 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|l| l.as_u64())
                 .unwrap_or(10)
                 .min(100) as u32;
-            let format = traz_core::OutputFormat::from_str_opt(
-                args.get("format").and_then(|f| f.as_str()),
-            );
-            let max_tokens = args.get("max_tokens").and_then(|m| m.as_u64()).map(|m| m as usize);
-            let deduplicate = args.get("deduplicate").and_then(|d| d.as_bool()).unwrap_or(false);
+            let format =
+                traz_core::OutputFormat::from_str_opt(args.get("format").and_then(|f| f.as_str()));
+            let max_tokens = args
+                .get("max_tokens")
+                .and_then(|m| m.as_u64())
+                .map(|m| m as usize);
+            let deduplicate = args
+                .get("deduplicate")
+                .and_then(|d| d.as_bool())
+                .unwrap_or(false);
 
             match db.get_recent_events(limit) {
-                Ok(events) => {
-                    match format {
-                        traz_core::OutputFormat::Dense => {
-                            let mut budget = match max_tokens {
-                                Some(n) => traz_core::TokenBudget::new(n),
-                                None => traz_core::TokenBudget::unlimited(),
-                            };
-                            let output = traz_core::build_optimized_context(
-                                events,
-                                format,
-                                &mut budget,
-                                deduplicate,
-                                Some("Recent Events"),
-                            );
-                            tool_ok(&output)
-                        }
-                        traz_core::OutputFormat::Markdown => {
-                            tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default())
-                        }
+                Ok(events) => match format {
+                    traz_core::OutputFormat::Dense => {
+                        let mut budget = match max_tokens {
+                            Some(n) => traz_core::TokenBudget::new(n),
+                            None => traz_core::TokenBudget::unlimited(),
+                        };
+                        let output = traz_core::build_optimized_context(
+                            events,
+                            format,
+                            &mut budget,
+                            deduplicate,
+                            Some("Recent Events"),
+                        );
+                        tool_ok(&output)
                     }
-                }
+                    traz_core::OutputFormat::Markdown => {
+                        tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default())
+                    }
+                },
                 Err(e) => tool_err(&e.to_string()),
             }
         }
@@ -374,11 +377,16 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .unwrap_or(10)
                 .min(100) as u32;
             let query = args.get("query").and_then(|q| q.as_str());
-            let format = traz_core::OutputFormat::from_str_opt(
-                args.get("format").and_then(|f| f.as_str()),
-            );
-            let max_tokens = args.get("max_tokens").and_then(|m| m.as_u64()).map(|m| m as usize);
-            let deduplicate = args.get("deduplicate").and_then(|d| d.as_bool()).unwrap_or(false);
+            let format =
+                traz_core::OutputFormat::from_str_opt(args.get("format").and_then(|f| f.as_str()));
+            let max_tokens = args
+                .get("max_tokens")
+                .and_then(|m| m.as_u64())
+                .map(|m| m as usize);
+            let deduplicate = args
+                .get("deduplicate")
+                .and_then(|d| d.as_bool())
+                .unwrap_or(false);
 
             match db.get_context_optimized(query, limit, format, max_tokens, deduplicate) {
                 Ok(ctx) => tool_ok(&ctx),

@@ -285,4 +285,7 @@ pub enum Commands {
 
     /// Generate embeddings for events that are missing them (e.g., from before semantic search was enabled)
     BackfillEmbeddings,
+
+    /// Troubleshoot current traz installation (SQLite FTS5, embedding model files, data path)
+    Doctor,
 }

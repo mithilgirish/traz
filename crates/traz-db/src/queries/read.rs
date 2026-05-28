@@ -105,7 +105,10 @@ impl Db {
         }
 
         if let Some(since) = filters.since {
-            sql.push_str(&format!(" AND timestamp >= ?{}", param_idx));
+            sql.push_str(&format!(
+                " AND datetime(timestamp) >= datetime(?{})",
+                param_idx
+            ));
             params.push(Box::new(since.to_rfc3339()));
             param_idx += 1;
         }
@@ -144,10 +147,10 @@ impl Db {
             conditions.push("type = ?".into());
         }
         if since.is_some() {
-            conditions.push("timestamp >= ?".into());
+            conditions.push("datetime(timestamp) >= datetime(?)".into());
         }
         if until.is_some() {
-            conditions.push("timestamp <= ?".into());
+            conditions.push("datetime(timestamp) <= datetime(?)".into());
         }
 
         if !conditions.is_empty() {
@@ -219,13 +222,7 @@ impl Db {
     /// Generate a structured context summary for AI agents.
     pub fn get_context_summary(&self, query: Option<&str>, limit: u32) -> Result<String> {
         // Backward-compatible wrapper: markdown format, unlimited budget, no dedup.
-        self.get_context_optimized(
-            query,
-            limit,
-            traz_core::OutputFormat::Markdown,
-            None,
-            false,
-        )
+        self.get_context_optimized(query, limit, traz_core::OutputFormat::Markdown, None, false)
     }
 
     /// Generate a token-optimized context summary for AI agents.
@@ -337,7 +334,21 @@ impl Db {
     pub fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<(Event, f32)>> {
         // TODO v0.2: use sqlite-vec extension for ANN search
 
-        let query_vec = traz_embeddings::embed_text(query)?;
+        let query_vec = match traz_embeddings::embed_text(query) {
+            Ok(vec) => vec,
+            Err(e) => {
+                if !traz_embeddings::is_embedding_model_downloaded() {
+                    anyhow::bail!(
+                        "Embedding model is not downloaded.\nRun `traz init --with-embeddings` to enable semantic search."
+                    );
+                } else {
+                    anyhow::bail!(
+                        "Failed to generate query embedding: {}. If the model files are corrupted, run `traz init --with-embeddings` to download them again.",
+                        e
+                    );
+                }
+            }
+        };
 
         let mut top_matches = Vec::new();
         {

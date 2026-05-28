@@ -127,12 +127,14 @@ pub fn summarize_diff(diff: &str) -> String {
 
     for line in diff.lines() {
         if line.starts_with("+++ b/") || line.starts_with("+++ a/") {
-            let path = line.trim_start_matches("+++ b/").trim_start_matches("+++ a/");
+            let path = line
+                .trim_start_matches("+++ b/")
+                .trim_start_matches("+++ a/");
             // Extract just the filename
-            if let Some(name) = path.rsplit('/').next() {
-                if !files.contains(&name.to_string()) {
-                    files.push(name.to_string());
-                }
+            if let Some(name) = path.rsplit('/').next()
+                && !files.contains(&name.to_string())
+            {
+                files.push(name.to_string());
             }
         } else if line.starts_with('+') && !line.starts_with("+++") {
             additions += 1;
@@ -202,20 +204,20 @@ pub fn format_event_dense(event: &Event) -> String {
     }
 
     // Add files (basename only, max 3)
-    if let Some(ref files) = event.files {
-        if !files.is_empty() {
-            let basenames: Vec<&str> = files
-                .iter()
-                .take(3)
-                .map(|f| f.rsplit('/').next().unwrap_or(f))
-                .collect();
-            let files_str = if files.len() > 3 {
-                format!("{}+{}", basenames.join(","), files.len() - 3)
-            } else {
-                basenames.join(",")
-            };
-            parts.push(files_str);
-        }
+    if let Some(ref files) = event.files
+        && !files.is_empty()
+    {
+        let basenames: Vec<&str> = files
+            .iter()
+            .take(3)
+            .map(|f| f.rsplit('/').next().unwrap_or(f))
+            .collect();
+        let files_str = if files.len() > 3 {
+            format!("{}+{}", basenames.join(","), files.len() - 3)
+        } else {
+            basenames.join(",")
+        };
+        parts.push(files_str);
     }
 
     // Add diff summary
@@ -470,23 +472,22 @@ pub fn build_optimized_context(
                 }
 
                 // Files (limit to 3 with budget)
-                if let Some(ref files) = event.files {
-                    if !files.is_empty() {
-                        let files_line = if !budget.is_unlimited() && files.len() > 3 {
-                            let top: Vec<&str> =
-                                files.iter().take(3).map(|s| s.as_str()).collect();
-                            format!(
-                                "- **Files:** {}, +{} more\n",
-                                top.join(", "),
-                                files.len() - 3
-                            )
-                        } else {
-                            format!("- **Files:** {}\n", files.join(", "))
-                        };
-                        if budget.would_fit(&files_line) {
-                            budget.consume(&files_line);
-                            output.push_str(&files_line);
-                        }
+                if let Some(ref files) = event.files
+                    && !files.is_empty()
+                {
+                    let files_line = if !budget.is_unlimited() && files.len() > 3 {
+                        let top: Vec<&str> = files.iter().take(3).map(|s| s.as_str()).collect();
+                        format!(
+                            "- **Files:** {}, +{} more\n",
+                            top.join(", "),
+                            files.len() - 3
+                        )
+                    } else {
+                        format!("- **Files:** {}\n", files.join(", "))
+                    };
+                    if budget.would_fit(&files_line) {
+                        budget.consume(&files_line);
+                        output.push_str(&files_line);
                     }
                 }
 
@@ -500,19 +501,19 @@ pub fn build_optimized_context(
                 }
 
                 // Tags (included in markdown, omitted in dense for savings)
-                if let Some(ref tags) = event.tags {
-                    if !tags.is_empty() {
-                        let tags_line = format!(
-                            "- **Tags:** {}\n",
-                            tags.iter()
-                                .map(|t| format!("#{}", t))
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        );
-                        if budget.would_fit(&tags_line) {
-                            budget.consume(&tags_line);
-                            output.push_str(&tags_line);
-                        }
+                if let Some(ref tags) = event.tags
+                    && !tags.is_empty()
+                {
+                    let tags_line = format!(
+                        "- **Tags:** {}\n",
+                        tags.iter()
+                            .map(|t| format!("#{}", t))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    );
+                    if budget.would_fit(&tags_line) {
+                        budget.consume(&tags_line);
+                        output.push_str(&tags_line);
                     }
                 }
 
@@ -537,7 +538,7 @@ mod tests {
         // ~4 chars per token average
         let long_text = "a".repeat(100);
         let tokens = estimate_tokens(&long_text);
-        assert!(tokens >= 25 && tokens <= 35);
+        assert!((25..=35).contains(&tokens));
     }
 
     #[test]
@@ -664,8 +665,13 @@ mod tests {
         ];
 
         let mut budget = TokenBudget::unlimited();
-        let output =
-            build_optimized_context(events, OutputFormat::Dense, &mut budget, false, Some("Context"));
+        let output = build_optimized_context(
+            events,
+            OutputFormat::Dense,
+            &mut budget,
+            false,
+            Some("Context"),
+        );
         assert!(output.contains("bf"));
         assert!(output.contains("ft"));
     }
@@ -686,8 +692,7 @@ mod tests {
             .collect();
 
         let mut budget = TokenBudget::new(200);
-        let output =
-            build_optimized_context(events, OutputFormat::Dense, &mut budget, false, None);
+        let output = build_optimized_context(events, OutputFormat::Dense, &mut budget, false, None);
         assert!(output.contains("truncated"));
     }
 }

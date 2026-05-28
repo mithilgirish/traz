@@ -301,10 +301,18 @@ mod tests {
         };
         db.migrate().unwrap();
 
-        db.insert_event(&sample_event("cursor", "feature", "Built authentication system"))
-            .unwrap();
-        db.insert_event(&sample_event("claude", "bug_fix", "Fixed CSS layout issues"))
-            .unwrap();
+        db.insert_event(&sample_event(
+            "cursor",
+            "feature",
+            "Built authentication system",
+        ))
+        .unwrap();
+        db.insert_event(&sample_event(
+            "claude",
+            "bug_fix",
+            "Fixed CSS layout issues",
+        ))
+        .unwrap();
 
         let ctx = db.get_context_summary(Some("auth login"), 10).unwrap();
         assert!(ctx.contains("Relevant Context (RAG"));

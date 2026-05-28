@@ -50,6 +50,37 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     dot_product / (norm_a * norm_b)
 }
 
+/// Check if the local embedding model files exist under the traz data directory.
+pub fn is_embedding_model_downloaded() -> bool {
+    let mut cache_dir = match dirs::data_dir() {
+        Some(d) => d,
+        None => return false,
+    };
+    cache_dir.push("traz");
+    cache_dir.push("models");
+
+    if !cache_dir.exists() {
+        return false;
+    }
+
+    // Recursively check if any .onnx file exists
+    fn has_onnx_file(path: &std::path::Path) -> bool {
+        if path.is_file() {
+            return path.extension().is_some_and(|ext| ext == "onnx");
+        }
+        if path.is_dir() && let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                if has_onnx_file(&entry.path()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    has_onnx_file(&cache_dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

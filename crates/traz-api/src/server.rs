@@ -209,7 +209,14 @@ async fn search_events(
             event_type: event_type_filter.as_deref(),
             ..Default::default()
         };
-        db_clone.search_events(&query, &filters, limit)
+        db_clone
+            .hybrid_search(&query, &filters, limit)
+            .map(|events_with_scores| {
+                events_with_scores
+                    .into_iter()
+                    .map(|(event, _)| event)
+                    .collect::<Vec<Event>>()
+            })
     })
     .await
     .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
@@ -285,9 +292,10 @@ async fn context_summary(
     let limit = filter.limit.unwrap_or(10).min(100);
     let search = filter.search.clone();
     let db_clone = state.db.clone();
-    let result = tokio::task::spawn_blocking(move || db_clone.get_context_summary(search.as_deref(), limit))
-        .await
-        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+    let result =
+        tokio::task::spawn_blocking(move || db_clone.get_context_summary(search.as_deref(), limit))
+            .await
+            .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
 
     match result {
         Ok(ctx) => (

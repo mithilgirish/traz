@@ -208,7 +208,7 @@ async fn run_command(
                     deduplicate,
                     Some("Recent Events"),
                 );
-                print!("{}\n", output);
+                println!("{}", output);
             } else {
                 print_header(&format!("Recent Events ({})", events.len()));
                 print_events(&events);
@@ -682,8 +682,132 @@ async fn run_command(
         }
 
         Commands::Setup { tool } => {
-            let instructions = traz_integrations::adapters::setup_instructions(&tool)?;
-            println!("\n{}\n", instructions);
+            let tool_lower = tool.to_lowercase();
+            if tool_lower == "model" || tool_lower == "onnx" || tool_lower == "embeddings" {
+                #[allow(non_snake_case, unused_variables)]
+                let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
+                if traz_embeddings::is_embedding_model_downloaded() {
+                    println!(
+                        "\n  {GREEN}✓{RESET} {BOLD}Embedding Model:{RESET} Already downloaded and active."
+                    );
+                } else {
+                    println!(
+                        "\n  {MAGENTA}✗{RESET} {BOLD}Embedding Model:{RESET} NOT downloaded.\n    Run {CYAN}`traz init --with-embeddings`{RESET} to download it."
+                    );
+                }
+            } else {
+                let instructions = traz_integrations::adapters::setup_instructions(&tool)?;
+                println!("\n{}\n", instructions);
+
+                if (tool_lower == "claude" || tool_lower == "cursor" || tool_lower == "gemini")
+                    && !traz_embeddings::is_embedding_model_downloaded()
+                {
+                    #[allow(non_snake_case, unused_variables)]
+                    let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) =
+                        display::get_colors();
+                    println!(
+                        "  {YELLOW}⚠️  [WARNING]{RESET} {BOLD}Embedding model is missing.{RESET} Semantic search will not work.\n   Run {CYAN}`traz init --with-embeddings`{RESET} to download the model.\n"
+                    );
+                }
+            }
+        }
+
+        Commands::Doctor => {
+            #[allow(non_snake_case, unused_variables)]
+            let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
+
+            print_header("traz doctor");
+            println!("  Diagnosing local-first engineering memory layer installation...\n");
+
+            // 1. Check Data Directory & DB Path
+            println!("  {BOLD}1. Directory & Storage Checks:{RESET}");
+            println!("     - Shared Data Dir:  {}", config.data_dir().display());
+            println!("     - Database Path:    {}", config.db_path.display());
+
+            let db_status = if config.db_path.exists() {
+                format!("{GREEN}✓ Exists & Active{RESET}")
+            } else {
+                format!("{YELLOW}⚠ Missing (will be created on first write){RESET}")
+            };
+            println!("     - SQLite Database:  {}", db_status);
+
+            // 2. Check SQLite Connection and FTS5 Support
+            println!("\n  {BOLD}2. Database Engine Checks:{RESET}");
+            match Db::open(&config.db_path) {
+                Ok(database) => {
+                    println!("     - Connection:       {GREEN}✓ Connection Succeeded{RESET}");
+
+                    // Run real FTS5 support check in-memory or on database connection
+                    let fts5_ok = database.check_fts5_support();
+
+                    if fts5_ok {
+                        println!("     - SQLite FTS5:      {GREEN}✓ Enabled & Compiled{RESET}");
+                    } else {
+                        println!(
+                            "     - SQLite FTS5:      {MAGENTA}✗ Disabled/Missing{RESET}\n       {YELLOW}⚠️  [CRITICAL] Keyword search requires FTS5 support in your SQLite compilation.{RESET}"
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!(
+                        "     - Connection:       {MAGENTA}✗ Failed to Open DB: {}{RESET}",
+                        e
+                    );
+                    println!("     - SQLite FTS5:      {DIM}Skipped (DB failed to open){RESET}");
+                }
+            }
+
+            // 3. Check Embedding Model (ONNX)
+            println!("\n  {BOLD}3. Local Machine Learning Checks:{RESET}");
+            let embeddings_enabled = config.embeddings_enabled;
+            println!(
+                "     - Config Status:    {}",
+                if embeddings_enabled {
+                    format!("{GREEN}Enabled{RESET}")
+                } else {
+                    format!("{DIM}Disabled{RESET}")
+                }
+            );
+
+            let model_ok = traz_embeddings::is_embedding_model_downloaded();
+            if model_ok {
+                println!(
+                    "     - ONNX Model:       {GREEN}✓ Downloaded & Ready{RESET} (all-MiniLM-L6-v2)"
+                );
+            } else {
+                let msg = if embeddings_enabled {
+                    format!(
+                        "{MAGENTA}✗ Missing (Enabled in config but files missing){RESET}\n       {YELLOW}⚠️  [WARNING] Run `traz init --with-embeddings` to download the model files.{RESET}"
+                    )
+                } else {
+                    format!(
+                        "{DIM}Not Downloaded{RESET} (Optional, run `traz init --with-embeddings` to setup)"
+                    )
+                };
+                println!("     - ONNX Model:       {}", msg);
+            }
+
+            // Summary
+            println!("\n  ──────────────────────────────────────────────────────────");
+            let fts5_supported = match Db::open(&config.db_path) {
+                Ok(database) => database.check_fts5_support(),
+                Err(_) => false,
+            };
+
+            if fts5_supported && (!embeddings_enabled || model_ok) {
+                println!(
+                    "  {GREEN}🎉 Everything looks solid! traz is fully healthy on this machine.{RESET}"
+                );
+            } else if !fts5_supported {
+                println!(
+                    "  {MAGENTA}❌ Installation issues found. SQLite FTS5 support is missing on this machine.{RESET}"
+                );
+            } else {
+                println!(
+                    "  {YELLOW}⚠ Setup incomplete. Run `traz init --with-embeddings` to enable semantic capabilities.{RESET}"
+                );
+            }
+            println!();
         }
 
         // ── Server commands ─────────────────────────────────────────
