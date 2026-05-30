@@ -1,7 +1,7 @@
 mod banner;
 mod cli;
-mod display;
 mod cuby;
+mod display;
 
 use anyhow::Result;
 use clap::Parser;
@@ -853,7 +853,6 @@ async fn run_interactive() -> Result<()> {
     let mut line_buf = String::new();
 
     loop {
-
         banner::print_prompt();
 
         line_buf.clear();

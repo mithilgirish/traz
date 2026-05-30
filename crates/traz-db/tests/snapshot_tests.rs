@@ -4,20 +4,10 @@ use traz_db::Db;
 
 #[test]
 fn test_semantic_search_snapshot() {
-    // Using the public API to open a memory database
-    let db = Db::open(&PathBuf::from(":memory:")).unwrap();
+    let mut db = Db::open(&PathBuf::from(":memory:")).unwrap();
 
-    // We need to enable embeddings in the config which is part of Db
-    // Since Db.config is currently private or restricted, we assume Db::open
-    // uses a default config. Let's check how to enable embeddings for test.
-    // In this specific implementation, we might need a test-only way to inject config.
-
-    let mut config = traz_core::TrazConfig::resolve();
-    config.db_path = PathBuf::from(":memory:");
-    config.embeddings_enabled = true;
-
-    // For this dummy test, let's assume Db::open works for now.
-    // If Db::open doesn't allow easy config injection, we might need to adjust traz-db.
+    // Enable embeddings in the Db config directly so insert_event saves them
+    db.config.embeddings_enabled = true;
 
     let e1 = Event::new(
         "tool1".into(),

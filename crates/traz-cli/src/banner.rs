@@ -69,7 +69,9 @@ pub fn print_interactive_welcome() {
             "  \x1b[38;5;245mInteractive mode. Type \x1b[1mhelp\x1b[0m\x1b[38;5;245m for commands, \x1b[1mtui\x1b[0m\x1b[38;5;245m for visual mode, \x1b[1mcuby\x1b[0m\x1b[38;5;245m for pet mode.\x1b[0m"
         );
     } else {
-        println!("  Interactive mode. Type 'help' for commands, 'tui' for visual mode, 'cuby' for pet mode.");
+        println!(
+            "  Interactive mode. Type 'help' for commands, 'tui' for visual mode, 'cuby' for pet mode."
+        );
     }
     println!();
 }
@@ -100,8 +102,10 @@ pub fn print_interactive_help() {
         println!("  {g}context{r} {d}[--limit N]{r}               {s} AI context summary");
         println!("  {g}stats{r}                             {s} Database statistics");
         println!("  {g}status{r}                            {s} Current system status");
-        println!("  {g}cuby{r} {d}[subcmd]{r}                      {s} Talk to Cuby, the context pet");
-        
+        println!(
+            "  {g}cuby{r} {d}[subcmd]{r}                      {s} Talk to Cuby, the context pet"
+        );
+
         println!("  {line}");
         println!("  {y}Mutation{r}");
         println!("  {g}log{r} {d}<msg>{r}                        {s} Log a manual event shorthand");

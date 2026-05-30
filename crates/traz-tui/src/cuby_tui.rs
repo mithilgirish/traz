@@ -1,11 +1,11 @@
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{
+    Terminal,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
-    Terminal,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -182,12 +182,11 @@ pub fn run_cuby_game(db_path: PathBuf) -> Result<()> {
             render_cuby_ui(f, &mut app_state);
         })?;
 
-        if event::poll(poll_dur)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Release {
-                    handle_cuby_key(&mut app_state, key.code)?;
-                }
-            }
+        if event::poll(poll_dur)?
+            && let Event::Key(key) = event::read()?
+            && key.kind != KeyEventKind::Release
+        {
+            handle_cuby_key(&mut app_state, key.code)?;
         }
 
         if app_state.quit {
@@ -206,29 +205,32 @@ fn handle_cuby_key(app: &mut CubyAppState, code: KeyCode) -> Result<()> {
                 app.dialogue = "Back to chilling! What else shall we do?".to_string();
                 app.mood = app.get_natural_mood();
             }
-            KeyCode::Enter => {
-                if !app.query_buffer.is_empty() {
-                    let query = app.query_buffer.clone();
-                    app.query_buffer.clear();
+            KeyCode::Enter if !app.query_buffer.is_empty() => {
+                let query = app.query_buffer.clone();
+                app.query_buffer.clear();
 
-                    let filters = traz_db::SearchFilters::default();
-                    let results = app.db.search_events(&query, &filters, 5)?;
+                let filters = traz_db::SearchFilters::default();
+                let results = app.db.search_events(&query, &filters, 5)?;
 
-                    app.search_results.clear();
-                    if results.is_empty() {
-                        app.mood = "dizzy".to_string();
-                        app.dialogue = format!("Oh no, I couldn't find any memories matching '{}'!", query);
-                    } else {
-                        app.mood = "suspicious".to_string();
-                        app.dialogue = format!("I sniffed out {} matches for you!", results.len());
-                        for (idx, event) in results.iter().enumerate() {
-                            let rel = relative_time_string(&event.timestamp);
-                            let icon = type_icon_string(&event.event_type);
-                            app.search_results.push(format!(
-                                "    {}. {} {} ({}) [{}]",
-                                idx + 1, icon, event.title, rel, event.tool
-                            ));
-                        }
+                app.search_results.clear();
+                if results.is_empty() {
+                    app.mood = "dizzy".to_string();
+                    app.dialogue =
+                        format!("Oh no, I couldn't find any memories matching '{}'!", query);
+                } else {
+                    app.mood = "suspicious".to_string();
+                    app.dialogue = format!("I sniffed out {} matches for you!", results.len());
+                    for (idx, event) in results.iter().enumerate() {
+                        let rel = relative_time_string(&event.timestamp);
+                        let icon = type_icon_string(&event.event_type);
+                        app.search_results.push(format!(
+                            "    {}. {} {} ({}) [{}]",
+                            idx + 1,
+                            icon,
+                            event.title,
+                            rel,
+                            event.tool
+                        ));
                     }
                 }
             }
@@ -278,7 +280,8 @@ fn handle_cuby_key(app: &mut CubyAppState, code: KeyCode) -> Result<()> {
             app.brain_power = (app.brain_power + 15).min(100);
             app.mood = "focused".to_string();
             app.current_action = "clean".to_string();
-            app.dialogue = "Vacuuming the context vault... Clearing old cached files! 🧹".to_string();
+            app.dialogue =
+                "Vacuuming the context vault... Clearing old cached files! 🧹".to_string();
         }
         KeyCode::Char('7') | KeyCode::Char('a') | KeyCode::Char('A') => {
             app.ask_mode = true;
@@ -349,7 +352,10 @@ fn get_cuby_ascii_spans<'a>(expression: &str, cuby_color: Color) -> Vec<Line<'a>
         Span::raw(" "),
         Span::styled("│", Style::default().fg(screen_color)),
         Span::raw(" "),
-        Span::styled(eyes, Style::default().fg(eye_color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            eyes,
+            Style::default().fg(eye_color).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" "),
         Span::styled("│", Style::default().fg(screen_color)),
         Span::raw(" "),
@@ -386,10 +392,7 @@ fn get_cuby_ascii_spans<'a>(expression: &str, cuby_color: Color) -> Vec<Line<'a>
 fn render_cuby_ui(f: &mut ratatui::Frame, app: &mut CubyAppState) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(16),
-            Constraint::Min(20),
-        ])
+        .constraints([Constraint::Length(16), Constraint::Min(20)])
         .split(f.size());
 
     let cuby_color = match app.mood.as_str() {
@@ -415,12 +418,16 @@ fn render_cuby_ui(f: &mut ratatui::Frame, app: &mut CubyAppState) {
         .split(chunks[1]);
 
     // ── Stats Section (Borderless!) ──
-    let mut stats_lines = vec![
-        Line::from(vec![
-            Span::styled("── Play with Cuby! ── ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled("Blinking Idle Mode Enabled ✨", Style::default().fg(Color::DarkGray)),
-        ]),
-    ];
+    let mut stats_lines = vec![Line::from(vec![
+        Span::styled(
+            "── Play with Cuby! ── ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "Blinking Idle Mode Enabled ✨",
+            Style::default().fg(Color::DarkGray),
+        ),
+    ])];
 
     let happy_bar = draw_bar_string(app.happiness);
     let hunger_bar = draw_bar_string(app.hunger);
@@ -428,15 +435,24 @@ fn render_cuby_ui(f: &mut ratatui::Frame, app: &mut CubyAppState) {
 
     stats_lines.push(Line::from(vec![
         Span::styled("Happiness: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(format!("{} {}%", happy_bar, app.happiness), Style::default().fg(Color::Cyan)),
+        Span::styled(
+            format!("{} {}%", happy_bar, app.happiness),
+            Style::default().fg(Color::Cyan),
+        ),
     ]));
     stats_lines.push(Line::from(vec![
         Span::styled("Hunger:    ", Style::default().fg(Color::DarkGray)),
-        Span::styled(format!("{} {}%", hunger_bar, app.hunger), Style::default().fg(Color::Blue)),
+        Span::styled(
+            format!("{} {}%", hunger_bar, app.hunger),
+            Style::default().fg(Color::Blue),
+        ),
     ]));
     stats_lines.push(Line::from(vec![
         Span::styled("Brain IQ:  ", Style::default().fg(Color::DarkGray)),
-        Span::styled(format!("{} {}%", brain_bar, app.brain_power), Style::default().fg(Color::Magenta)),
+        Span::styled(
+            format!("{} {}%", brain_bar, app.brain_power),
+            Style::default().fg(Color::Magenta),
+        ),
     ]));
 
     let stats_paragraph = Paragraph::new(stats_lines);
@@ -446,9 +462,19 @@ fn render_cuby_ui(f: &mut ratatui::Frame, app: &mut CubyAppState) {
     let dialog_text = vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled("“", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "“",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(&app.dialogue),
-            Span::styled("”", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "”",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
     ];
     let dialog_paragraph = Paragraph::new(dialog_text).wrap(Wrap { trim: true });
@@ -458,30 +484,33 @@ fn render_cuby_ui(f: &mut ratatui::Frame, app: &mut CubyAppState) {
     if app.ask_mode {
         let ask_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(2),
-                Constraint::Min(3),
-            ])
+            .constraints([Constraint::Length(2), Constraint::Min(3)])
             .split(right_chunks[2]);
 
         let input_text = vec![
             Line::from(vec![
-                Span::styled("  Query: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  Query: ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(&app.query_buffer),
                 Span::styled("▋", Style::default().fg(Color::Cyan)),
             ]),
-            Line::from(vec![
-                Span::styled("  (Type keyword and press Enter. Esc to go back)", Style::default().fg(Color::DarkGray)),
-            ]),
+            Line::from(vec![Span::styled(
+                "  (Type keyword and press Enter. Esc to go back)",
+                Style::default().fg(Color::DarkGray),
+            )]),
         ];
         let input_p = Paragraph::new(input_text);
         f.render_widget(input_p, ask_layout[0]);
 
-        let mut results_lines = vec![
-            Line::from("  ── Search Results ──"),
-        ];
+        let mut results_lines = vec![Line::from("  ── Search Results ──")];
         if app.search_results.is_empty() {
-            results_lines.push(Line::from("    Type a keyword above to search database context..."));
+            results_lines.push(Line::from(
+                "    Type a keyword above to search database context...",
+            ));
         } else {
             for res in &app.search_results {
                 results_lines.push(Line::from(res.as_str()));
@@ -492,9 +521,10 @@ fn render_cuby_ui(f: &mut ratatui::Frame, app: &mut CubyAppState) {
     } else {
         let menu_text = vec![
             Line::from(""),
-            Line::from(vec![
-                Span::styled("  What should we do?", Style::default().add_modifier(Modifier::BOLD)),
-            ]),
+            Line::from(vec![Span::styled(
+                "  What should we do?",
+                Style::default().add_modifier(Modifier::BOLD),
+            )]),
             Line::from(vec![
                 Span::styled("  1. ", Style::default().fg(Color::Green)),
                 Span::raw("Pet Cuby 👋         "),
@@ -565,7 +595,7 @@ fn get_random_song() -> &'static str {
         "Soft keyboard clicks, a quiet screen, / Sleekest binary you've ever seen! 💻",
         "Git merge conflicts melt away, / It's a gorgeous green deployment day! 🚀",
         "Oh database, oh SQLite store, / Save my traces forevermore! 📁",
-        "Haiku: Bug in the system, / Squashed by a developer, / Cuby remembers. 🌸"
+        "Haiku: Bug in the system, / Squashed by a developer, / Cuby remembers. 🌸",
     ];
     let idx = (chrono::Utc::now().timestamp_subsec_millis() as usize) % songs.len();
     songs[idx]
@@ -573,7 +603,10 @@ fn get_random_song() -> &'static str {
 
 fn get_context_aware_dialog(app: &CubyAppState, action: &str) -> String {
     let recent = app.db.get_recent_events(3).unwrap_or_default();
-    let last_title = recent.first().map(|e| e.title.as_str()).unwrap_or("writing cool code");
+    let last_title = recent
+        .first()
+        .map(|e| e.title.as_str())
+        .unwrap_or("writing cool code");
     let last_tool = recent.first().map(|e| e.tool.as_str()).unwrap_or("traz");
 
     let idx = (chrono::Utc::now().timestamp_subsec_millis() as usize) % 5;
@@ -581,40 +614,63 @@ fn get_context_aware_dialog(app: &CubyAppState, action: &str) -> String {
     match action {
         "pet" => {
             let responses = [
-                format!("Purrrr... Your cursor is so warm! Happiness increased! 🥰"),
-                format!("Ah, that's the spot! Love watching you use {} for '{}'! 👋", last_tool, last_title),
-                format!("Beep boop! Cuby rolls over. That felt as good as your last bug fix! ✨"),
-                format!("*Happy wiggles* I promise to remember '{}' forever! ⚡", last_title),
-                format!("*nuzzles* Cozy terminal! Let's write more code using {}!", last_tool),
+                "Purrrr... Your cursor is so warm! Happiness increased! 🥰".to_string(),
+                format!(
+                    "Ah, that's the spot! Love watching you use {} for '{}'! 👋",
+                    last_tool, last_title
+                ),
+                "Beep boop! Cuby rolls over. That felt as good as your last bug fix! ✨"
+                    .to_string(),
+                format!(
+                    "*Happy wiggles* I promise to remember '{}' forever! ⚡",
+                    last_title
+                ),
+                format!(
+                    "*nuzzles* Cozy terminal! Let's write more code using {}!",
+                    last_tool
+                ),
             ];
             responses[idx].clone()
         }
         "feed" => {
             let responses = [
-                format!("*Nom nom nom* Swallowed a trace treat! Hunger decreased! 🍕"),
-                format!("Yum! Tastes almost as good as the '{}' event you logged! 💾", last_title),
-                format!("*Chomps* Ah, packed with {} metadata! Hunger -25%! 🧠", last_tool),
-                format!("Delicious treat! Ready to remember all your '{}' traces! ⚡", last_title),
-                format!("*Nom* That trace had a delicious flavor profile! My brain is growing! 🌟"),
+                "*Nom nom nom* Swallowed a trace treat! Hunger decreased! 🍕".to_string(),
+                format!(
+                    "Yum! Tastes almost as good as the '{}' event you logged! 💾",
+                    last_title
+                ),
+                format!(
+                    "*Chomps* Ah, packed with {} metadata! Hunger -25%! 🧠",
+                    last_tool
+                ),
+                format!(
+                    "Delicious treat! Ready to remember all your '{}' traces! ⚡",
+                    last_title
+                ),
+                "*Nom* That trace had a delicious flavor profile! My brain is growing! 🌟"
+                    .to_string(),
             ];
             responses[idx].clone()
         }
         "poke" => {
             let responses = [
-                format!("Hey! That tickles! ⚡"),
-                format!("Ouch! Be gentle with my context shell! 🥺"),
-                format!("Stop poking! I'm trying to think about '{}'! 🧠", last_title),
-                format!("Beep boop! Cuby giggles and wiggles away! 😂"),
+                "Hey! That tickles! ⚡".to_string(),
+                "Ouch! Be gentle with my context shell! 🥺".to_string(),
+                format!(
+                    "Stop poking! I'm trying to think about '{}'! 🧠",
+                    last_title
+                ),
+                "Beep boop! Cuby giggles and wiggles away! 😂".to_string(),
                 format!("Ah! A poke! Is that a bug in '{}' I smell?", last_title),
             ];
             responses[idx].clone()
         }
         "clean" => {
             let responses = [
-                format!("Vacuuming the context vault... Clearing old cached files! 🧹"),
-                format!("Sweeping away unused traces... SQLite is shiny and clean! ✨"),
-                format!("Garbage collection complete! Optimized all traces! ⚙️"),
-                format!("Dusting off the indexes... Cuby feels so refreshed! 🧘"),
+                "Vacuuming the context vault... Clearing old cached files! 🧹".to_string(),
+                "Sweeping away unused traces... SQLite is shiny and clean! ✨".to_string(),
+                "Garbage collection complete! Optimized all traces! ⚙️".to_string(),
+                "Dusting off the indexes... Cuby feels so refreshed! 🧘".to_string(),
                 format!("Optimized {} database blocks. Brain power +15%!", last_tool),
             ];
             responses[idx].clone()

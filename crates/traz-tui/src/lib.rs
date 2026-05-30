@@ -3,10 +3,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 pub mod app;
+pub mod cuby_tui;
 pub mod diff;
 pub mod input;
 pub mod ui;
-pub mod cuby_tui;
 
 use app::App;
 use input::handle_input;

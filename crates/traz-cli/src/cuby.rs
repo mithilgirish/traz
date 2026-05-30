@@ -46,7 +46,9 @@ pub fn colorize_ascii_line(
                 _ => "■  ■",
             };
 
-            format!(" {cuby_color}█{reset} {screen_color}│{reset} {eye_color}{eyes}{reset} {screen_color}│{reset} {cuby_color}█{reset}")
+            format!(
+                " {cuby_color}█{reset} {screen_color}│{reset} {eye_color}{eyes}{reset} {screen_color}│{reset} {cuby_color}█{reset}"
+            )
         }
         3 => {
             format!(" {cuby_color}█{reset} {screen_color}└──────┘{reset} {cuby_color}█{reset}")
@@ -101,14 +103,8 @@ pub fn print_cuby_side_by_side(expression: &str, text_lines: &[String]) {
     println!();
 }
 
-
-
 /// Handles the `traz cuby` subcommands.
-pub async fn handle_cuby_command(
-    subcommand: &str,
-    args: &[String],
-    db: Arc<Db>,
-) -> Result<()> {
+pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>) -> Result<()> {
     #[allow(non_snake_case)]
     let (RESET, BOLD, DIM, CYAN, _GREEN, _YELLOW, _MAGENTA, _BLUE) = crate::display::get_colors();
 
@@ -116,13 +112,34 @@ pub async fn handle_cuby_command(
         "status" | "stats" | "" => {
             let count = db.count_events()?;
             let (mood, message) = if count == 0 {
-                ("sad", format!("My memory is completely empty! Feed me some trace treats! 😢"))
+                (
+                    "sad",
+                    "My memory is completely empty! Feed me some trace treats! 😢".to_string(),
+                )
             } else if count <= 10 {
-                ("happy", format!("I remember {} things! My brain is starting to spark! ⚡", count))
+                (
+                    "happy",
+                    format!(
+                        "I remember {} things! My brain is starting to spark! ⚡",
+                        count
+                    ),
+                )
             } else if count <= 50 {
-                ("excited", format!("Nom nom! I remember {} events! I'm getting so smart! 🌟", count))
+                (
+                    "excited",
+                    format!(
+                        "Nom nom! I remember {} events! I'm getting so smart! 🌟",
+                        count
+                    ),
+                )
             } else {
-                ("chill", format!("Ah, absolute peace. I hold {} memories in my vault! 🧘", count))
+                (
+                    "chill",
+                    format!(
+                        "Ah, absolute peace. I hold {} memories in my vault! 🧘",
+                        count
+                    ),
+                )
             };
 
             let lines = vec![
@@ -161,7 +178,12 @@ pub async fn handle_cuby_command(
                 print_cuby_side_by_side("dizzy", &lines);
             } else {
                 let mut lines = vec![
-                    format!("{}*Sniffs context* I found {} matching memories!{}", BOLD, results.len(), RESET),
+                    format!(
+                        "{}*Sniffs context* I found {} matching memories!{}",
+                        BOLD,
+                        results.len(),
+                        RESET
+                    ),
                     "".to_string(),
                 ];
 
@@ -190,7 +212,10 @@ pub async fn handle_cuby_command(
                 let lines = vec![
                     format!("{}Wait! What are we eating?{} 🍕", BOLD, RESET),
                     format!("Please specify a memory title to feed me!"),
-                    format!("Example: {}traz cuby feed \"Fixed login database bug\"{}", CYAN, RESET),
+                    format!(
+                        "Example: {}traz cuby feed \"Fixed login database bug\"{}",
+                        CYAN, RESET
+                    ),
                 ];
                 print_cuby_side_by_side("derp", &lines);
                 return Ok(());
@@ -282,7 +307,13 @@ pub async fn handle_cuby_command(
                     "".to_string(),
                     commentary,
                     "".to_string(),
-                    format!("{}Memory ID: #{} · Tool: {}{}", DIM, event.id.unwrap_or(0), event.tool, RESET),
+                    format!(
+                        "{}Memory ID: #{} · Tool: {}{}",
+                        DIM,
+                        event.id.unwrap_or(0),
+                        event.tool,
+                        RESET
+                    ),
                 ];
 
                 print_cuby_side_by_side(mood, &lines);
@@ -295,7 +326,9 @@ pub async fn handle_cuby_command(
                     format!("{}Which mood?{} 🤔", BOLD, RESET),
                     format!("Tell me which mood to show! Available moods:"),
                     format!("  neutral, happy, sad, angry, surprised, wink, suspicious,"),
-                    format!("  error, excited, dizzy, asleep, crying, focused, derp, chill, premium"),
+                    format!(
+                        "  error, excited, dizzy, asleep, crying, focused, derp, chill, premium"
+                    ),
                 ];
                 print_cuby_side_by_side("curious", &lines);
                 return Ok(());
@@ -304,14 +337,24 @@ pub async fn handle_cuby_command(
             let requested_mood = args[0].to_lowercase();
             let quote = match requested_mood.as_str() {
                 "neutral" | "default" => "Just chilling. Ready to remember everything!",
-                "happy" | "curious" => "Today is a great day to write some code! What are we building?",
+                "happy" | "curious" => {
+                    "Today is a great day to write some code! What are we building?"
+                }
                 "sad" | "sleepy" => "Need... more... coffee... or maybe some trace events...",
-                "angry" | "scowling" => "Who broke the build? Show them to me! I will scowl at them!",
+                "angry" | "scowling" => {
+                    "Who broke the build? Show them to me! I will scowl at them!"
+                }
                 "surprised" | "shocked" => "Whoa! Did you see that compile speed? Zoom!",
-                "wink" | "mischievous" => "I know a secret... but I won't tell unless you write clean code.",
-                "suspicious" | "processing" => "Hmm... is that a bug I smell? Or just a very creative feature?",
+                "wink" | "mischievous" => {
+                    "I know a secret... but I won't tell unless you write clean code."
+                }
+                "suspicious" | "processing" => {
+                    "Hmm... is that a bug I smell? Or just a very creative feature?"
+                }
                 "error" | "offline" => "Core dump! Brain overflow! Just kidding, I'm just offline.",
-                "excited" | "starstruck" => "Oh my gosh! You are writing beautiful code! Keep going!",
+                "excited" | "starstruck" => {
+                    "Oh my gosh! You are writing beautiful code! Keep going!"
+                }
                 "dizzy" | "confused" => "Wait, what did we just do? Which branch are we on?",
                 "asleep" | "idle" => "Zzz... 101010... sleeping on the job...",
                 "crying" | "overwhelmed" => "Too many conflicts! My merge is broken! *Sob*",
@@ -325,13 +368,22 @@ pub async fn handle_cuby_command(
             if quote.is_empty() {
                 let lines = vec![
                     format!("{}Invalid mood: '{}'{} 😵", BOLD, requested_mood, RESET),
-                    format!("Valid moods: neutral, happy, sad, angry, surprised, wink, suspicious,"),
-                    format!("             error, excited, dizzy, asleep, crying, focused, derp, chill, premium"),
+                    format!(
+                        "Valid moods: neutral, happy, sad, angry, surprised, wink, suspicious,"
+                    ),
+                    format!(
+                        "             error, excited, dizzy, asleep, crying, focused, derp, chill, premium"
+                    ),
                 ];
                 print_cuby_side_by_side("derp", &lines);
             } else {
                 let lines = vec![
-                    format!("{}Cuby feels: {}{}", BOLD, requested_mood.to_uppercase(), RESET),
+                    format!(
+                        "{}Cuby feels: {}{}",
+                        BOLD,
+                        requested_mood.to_uppercase(),
+                        RESET
+                    ),
                     "".to_string(),
                     format!("\"{}\"", quote),
                 ];
@@ -362,7 +414,7 @@ pub async fn handle_cuby_command(
                 "*happy beep* \"Your cursor is so warm! Thank you for the head pats!\" 🥰",
                 "*wiggles happily* \"I promise to remember every single bug fix for you!\" ⚡",
                 "*nuzzles your terminal* \"Mmm, delicious context. Let's compile something!\" 🚀",
-                "*rolls over* \"Beep boop! You are doing an amazing job today! Keep going!\" 🌟"
+                "*rolls over* \"Beep boop! You are doing an amazing job today! Keep going!\" 🌟",
             ];
             let idx = (chrono::Utc::now().timestamp_subsec_millis() as usize) % pet_responses.len();
             let response = pet_responses[idx];
@@ -379,15 +431,42 @@ pub async fn handle_cuby_command(
             let lines = vec![
                 format!("{}Beep? I don't know that command!{} ❓", BOLD, RESET),
                 format!("Here are the commands I understand:"),
-                format!("  {}cuby status{}       - Check my mood and memory status", CYAN, RESET),
-                format!("  {}cuby play{}         - Open the interactive Tamagotchi pet game!", CYAN, RESET),
-                format!("  {}cuby dance{}        - Watch Cuby perform a cute terminal dance!", CYAN, RESET),
-                format!("  {}cuby sing{}         - Let Cuby sing you a developer song!", CYAN, RESET),
-                format!("  {}cuby pet{}          - Pet Cuby for a happy reaction!", CYAN, RESET),
-                format!("  {}cuby ask <query>{} - Search my memory vault for context", CYAN, RESET),
-                format!("  {}cuby feed <text>{} - Feed me a new memory treat", CYAN, RESET),
-                format!("  {}cuby talk{}         - Let me comment on your recent code trace", CYAN, RESET),
-                format!("  {}cuby mood <mood>{} - Force me into any of my 16 expressions!", CYAN, RESET),
+                format!(
+                    "  {}cuby status{}       - Check my mood and memory status",
+                    CYAN, RESET
+                ),
+                format!(
+                    "  {}cuby play{}         - Open the interactive Tamagotchi pet game!",
+                    CYAN, RESET
+                ),
+                format!(
+                    "  {}cuby dance{}        - Watch Cuby perform a cute terminal dance!",
+                    CYAN, RESET
+                ),
+                format!(
+                    "  {}cuby sing{}         - Let Cuby sing you a developer song!",
+                    CYAN, RESET
+                ),
+                format!(
+                    "  {}cuby pet{}          - Pet Cuby for a happy reaction!",
+                    CYAN, RESET
+                ),
+                format!(
+                    "  {}cuby ask <query>{} - Search my memory vault for context",
+                    CYAN, RESET
+                ),
+                format!(
+                    "  {}cuby feed <text>{} - Feed me a new memory treat",
+                    CYAN, RESET
+                ),
+                format!(
+                    "  {}cuby talk{}         - Let me comment on your recent code trace",
+                    CYAN, RESET
+                ),
+                format!(
+                    "  {}cuby mood <mood>{} - Force me into any of my 16 expressions!",
+                    CYAN, RESET
+                ),
             ];
             print_cuby_side_by_side("dizzy", &lines);
         }
@@ -422,7 +501,7 @@ fn get_random_song() -> &'static str {
         "Soft keyboard clicks, a quiet screen, / Sleekest binary you've ever seen! 💻",
         "Git merge conflicts melt away, / It's a gorgeous green deployment day! 🚀",
         "Oh database, oh SQLite store, / Save my traces forevermore! 📁",
-        "Haiku: Bug in the system, / Squashed by a developer, / Cuby remembers. 🌸"
+        "Haiku: Bug in the system, / Squashed by a developer, / Cuby remembers. 🌸",
     ];
     let idx = (chrono::Utc::now().timestamp_subsec_millis() as usize) % songs.len();
     songs[idx]
@@ -452,7 +531,10 @@ fn render_game_screen(expression: &str, happiness: u32, hunger: u32, brain_power
         format!("{}Hunger:   {} {} {}%", DIM, RESET, hunger_bar, hunger),
         format!("{}Brain IQ: {} {} {}%", DIM, RESET, brain_bar, brain_power),
         "".to_string(),
-        format!("\"{}\"", get_status_commentary(happiness, hunger, brain_power)),
+        format!(
+            "\"{}\"",
+            get_status_commentary(happiness, hunger, brain_power)
+        ),
     ];
 
     print_cuby_side_by_side(expression, &lines);
@@ -465,11 +547,7 @@ fn render_game_screen(expression: &str, happiness: u32, hunger: u32, brain_power
     println!("  {}5.{} Exit Game 🚪", GREEN, RESET);
 }
 
-pub fn play_dance_animation(
-    happiness: u32,
-    hunger: u32,
-    brain_power: u32,
-) -> Result<()> {
+pub fn play_dance_animation(happiness: u32, hunger: u32, brain_power: u32) -> Result<()> {
     #[allow(non_snake_case)]
     let (_RESET, _BOLD, _DIM, CYAN, _GREEN, _YELLOW, _MAGENTA, BLUE) = crate::display::get_colors();
 

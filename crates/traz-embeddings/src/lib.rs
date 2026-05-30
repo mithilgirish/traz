@@ -68,7 +68,9 @@ pub fn is_embedding_model_downloaded() -> bool {
         if path.is_file() {
             return path.extension().is_some_and(|ext| ext == "onnx");
         }
-        if path.is_dir() && let Ok(entries) = std::fs::read_dir(path) {
+        if path.is_dir()
+            && let Ok(entries) = std::fs::read_dir(path)
+        {
             for entry in entries.flatten() {
                 if has_onnx_file(&entry.path()) {
                     return true;
