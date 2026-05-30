@@ -18,6 +18,7 @@ traz-mcp = { workspace = true }
 traz-integrations = { workspace = true }
 traz-tui = { path = "../traz-tui" }
 traz-embeddings = { workspace = true }
+uuid = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }

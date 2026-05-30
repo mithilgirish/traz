@@ -3407,6 +3407,7 @@ dependencies = [
  "traz-integrations",
  "traz-mcp",
  "traz-tui",
+ "uuid",
 ]
 
 [[package]]

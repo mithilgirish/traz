@@ -1,6 +1,7 @@
 mod banner;
 mod cli;
 mod display;
+mod cuby;
 
 use anyhow::Result;
 use clap::Parser;
@@ -825,6 +826,10 @@ async fn run_command(
         Commands::Mcp => {
             traz_mcp::run_mcp_server(db).await?;
         }
+
+        Commands::Cuby { subcommand, args } => {
+            cuby::handle_cuby_command(&subcommand, &args, db).await?;
+        }
     }
 
     Ok(())
@@ -838,21 +843,16 @@ async fn run_interactive() -> Result<()> {
     let db = Arc::new(Db::open(&config.db_path)?);
 
     // Set up Ctrl+C handler for graceful exit
-    let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let r = running.clone();
     ctrlc::set_handler(move || {
-        r.store(false, std::sync::atomic::Ordering::SeqCst);
         println!(); // newline after ^C
+        banner::print_farewell();
+        std::process::exit(0);
     })?;
 
     let stdin = std::io::stdin();
     let mut line_buf = String::new();
 
     loop {
-        if !running.load(std::sync::atomic::Ordering::SeqCst) {
-            banner::print_farewell();
-            break;
-        }
 
         banner::print_prompt();
 
@@ -870,7 +870,7 @@ async fn run_interactive() -> Result<()> {
         }
 
         match input {
-            "exit" | "quit" | "q" => {
+            "/exit" | "/quit" | "/q" => {
                 banner::print_farewell();
                 break;
             }

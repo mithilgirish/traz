@@ -66,10 +66,10 @@ pub fn print_interactive_welcome() {
 
     if is_color {
         println!(
-            "  \x1b[38;5;245mInteractive mode. Type \x1b[1mhelp\x1b[0m\x1b[38;5;245m for commands, \x1b[1mtui\x1b[0m\x1b[38;5;245m for visual mode.\x1b[0m"
+            "  \x1b[38;5;245mInteractive mode. Type \x1b[1mhelp\x1b[0m\x1b[38;5;245m for commands, \x1b[1mtui\x1b[0m\x1b[38;5;245m for visual mode, \x1b[1mcuby\x1b[0m\x1b[38;5;245m for pet mode.\x1b[0m"
         );
     } else {
-        println!("  Interactive mode. Type 'help' for commands, 'tui' for visual mode.");
+        println!("  Interactive mode. Type 'help' for commands, 'tui' for visual mode, 'cuby' for pet mode.");
     }
     println!();
 }
@@ -85,7 +85,7 @@ pub fn print_interactive_help() {
         let g = "\x1b[38;5;77m";
         let y = "\x1b[38;5;220m";
         let s = "\x1b[38;5;240m\u{2502}\x1b[0m";
-        let line = "\x1b[38;5;245m\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\x1b[0m";
+        let line = "\x1b[38;5;245m\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\x1b[0m";
 
         println!();
         println!("  {b}{c}Interactive Commands{r}");
@@ -93,20 +93,40 @@ pub fn print_interactive_help() {
 
         println!("  {y}Query{r}");
         println!("  {g}recent{r} {d}[--limit N]{r}                {s} Show recent events");
+        println!("  {g}timeline{r} {d}[--limit N]{r}              {s} Show chronological timeline");
         println!("  {g}search{r} {d}<query>{r}                   {s} Search events");
         println!("  {g}show{r} {d}<id>{r}                        {s} Full event details");
+        println!("  {g}diff{r} {d}<id>{r}                        {s} Show code diff for event");
         println!("  {g}context{r} {d}[--limit N]{r}               {s} AI context summary");
         println!("  {g}stats{r}                             {s} Database statistics");
+        println!("  {g}status{r}                            {s} Current system status");
+        println!("  {g}cuby{r} {d}[subcmd]{r}                      {s} Talk to Cuby, the context pet");
+        
+        println!("  {line}");
+        println!("  {y}Mutation{r}");
+        println!("  {g}log{r} {d}<msg>{r}                        {s} Log a manual event shorthand");
+        println!("  {g}add{r} {d}[opts]{r}                       {s} Add a detailed event");
+        println!("  {g}capture{r}                          {s} Capture latest git commit");
+        println!("  {g}undo{r}                             {s} Delete the most recent event");
+        println!("  {g}delete{r} {d}<id>{r}                      {s} Delete an event by ID");
+        println!("  {g}rewind{r} {d}<id>{r}                      {s} Delete all events after ID");
+        println!("  {g}compress{r} {d}--summary <text>{r}        {s} Compress old events");
+
+        println!("  {line}");
+        println!("  {y}System{r}");
+        println!("  {g}setup{r} {d}<tool>{r}                     {s} Show integration setup steps");
+        println!("  {g}doctor{r}                            {s} Troubleshoot installation");
+        println!("  {g}import{r} / {g}export{r}                   {s} Import/Export events (JSON)");
 
         println!("  {line}");
         println!("  {y}Modes{r}");
         println!("  {g}tui{r}                                {s} Switch to visual TUI dashboard");
         println!("  {g}clear{r}                              {s} Clear screen");
-        println!("  {g}exit{r} / {g}quit{r}                       {s} Exit application");
+        println!("  {g}/exit{r} / {g}/quit{r}                     {s} Exit application");
         println!();
     } else {
         println!(
-            "\n  Interactive Commands\n  ──────────────────────────────────────────────────\n  recent, search, show, context, stats, tui, clear, exit\n"
+            "\n  Interactive Commands\n  ──────────────────────────────────────────────────────────\n  Query:   recent, timeline, search, show, diff, context, stats, status, cuby\n  Mutate:  log, add, capture, undo, delete, rewind, compress\n  System:  setup, doctor, import, export\n  Modes:   tui, clear, /exit\n"
         );
     }
 }

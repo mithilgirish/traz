@@ -22,6 +22,9 @@ const MAX_LINE_LEN: usize = 10 * 1024 * 1024;
 
 /// Run the MCP (Model Context Protocol) stdio server.
 pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
+    eprintln!("🚀 traz MCP server is running and listening on stdio.");
+    eprintln!("   (Note: this mode is for AI clients. Press Ctrl+C to exit.)");
+
     let experimental = std::env::var("TRAZ_EXPERIMENTAL").unwrap_or_default() == "1";
     if experimental {
         eprintln!(
@@ -190,6 +193,28 @@ fn build_tool_definitions(experimental: bool) -> Value {
                     "summary": { "type": "string", "description": "A dense summary of what was accomplished, what failed, and exact next steps." }
                 },
                 "required": ["summary"]
+            }
+        }),
+        json!({
+            "name": "traz_show",
+            "description": "Show the full, unabridged details of a specific engineering event by its ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number", "description": "The ID of the event to view" }
+                },
+                "required": ["id"]
+            }
+        }),
+        json!({
+            "name": "traz_diff",
+            "description": "Show the full code diff (patch) associated with a specific engineering event by its ID, if any.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number", "description": "The ID of the event" }
+                },
+                "required": ["id"]
             }
         }),
     ];
@@ -436,6 +461,44 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 }
             } else {
                 tool_err("Missing required arguments: days, summary")
+            }
+        }
+        "traz_show" => {
+            if let Some(id_val) = args.get("id") {
+                if let Some(id) = id_val.as_i64() {
+                    match db.get_event(id) {
+                        Ok(Some(event)) => {
+                            tool_ok(&serde_json::to_string_pretty(&event).unwrap_or_default())
+                        }
+                        Ok(None) => tool_err(&format!("Event {} not found.", id)),
+                        Err(e) => tool_err(&e.to_string()),
+                    }
+                } else {
+                    tool_err("Argument 'id' must be an integer.")
+                }
+            } else {
+                tool_err("Missing required argument: id")
+            }
+        }
+        "traz_diff" => {
+            if let Some(id_val) = args.get("id") {
+                if let Some(id) = id_val.as_i64() {
+                    match db.get_event(id) {
+                        Ok(Some(event)) => {
+                            if let Some(diff) = event.diff {
+                                tool_ok(&diff)
+                            } else {
+                                tool_ok("This event has no associated code diff.")
+                            }
+                        }
+                        Ok(None) => tool_err(&format!("Event {} not found.", id)),
+                        Err(e) => tool_err(&e.to_string()),
+                    }
+                } else {
+                    tool_err("Argument 'id' must be an integer.")
+                }
+            } else {
+                tool_err("Missing required argument: id")
             }
         }
         "traz_checkpoint" => {

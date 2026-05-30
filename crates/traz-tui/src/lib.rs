@@ -6,6 +6,7 @@ pub mod app;
 pub mod diff;
 pub mod input;
 pub mod ui;
+pub mod cuby_tui;
 
 use app::App;
 use input::handle_input;

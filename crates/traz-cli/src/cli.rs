@@ -288,4 +288,15 @@ pub enum Commands {
 
     /// Troubleshoot current traz installation (SQLite FTS5, embedding model files, data path)
     Doctor,
+
+    /// Interact with Cuby, the context pet
+    Cuby {
+        /// Subcommand for Cuby: status, ask, feed, talk, mood
+        #[arg(default_value = "status")]
+        subcommand: String,
+
+        /// Additional arguments for the Cuby subcommand
+        #[arg(num_args = 0..)]
+        args: Vec<String>,
+    },
 }
