@@ -37,7 +37,11 @@ async fn main() -> Result<()> {
             let contents = std::fs::read_to_string(gitignore_path).unwrap_or_default();
             if !contents.contains(".traz/") {
                 use std::io::Write;
-                if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(gitignore_path) {
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(gitignore_path)
+                {
                     if !contents.ends_with('\n') && !contents.is_empty() {
                         let _ = writeln!(file);
                     }
@@ -231,15 +235,21 @@ async fn run_command(
             #[allow(non_snake_case, unused_variables)]
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
             let limit = 100;
-            let since = chrono::Utc::now() - chrono::Duration::try_hours(hours as i64).unwrap_or(chrono::Duration::zero());
+            let since = chrono::Utc::now()
+                - chrono::Duration::try_hours(hours as i64).unwrap_or(chrono::Duration::zero());
             let events = db.get_filtered_events(limit, None, None, Some(since), None)?;
             if events.is_empty() {
-                print_empty(&format!("No events found in the last {} hours. You're starting fresh!", hours));
+                print_empty(&format!(
+                    "No events found in the last {} hours. You're starting fresh!",
+                    hours
+                ));
             } else {
                 print_header(&format!("Morning Recap (Last {} hours)", hours));
                 print_events(&events);
                 println!();
-                println!("  {DIM}Tip: Feed this into Claude or Cursor to quickly catch them up.{RESET}");
+                println!(
+                    "  {DIM}Tip: Feed this into Claude or Cursor to quickly catch them up.{RESET}"
+                );
                 println!();
             }
         }
@@ -633,8 +643,11 @@ async fn run_command(
                 }
             }
 
-            // 5. REST API status
-            let api_running = if let Ok(addr) = "127.0.0.1:4000".parse::<std::net::SocketAddr>() {
+            // 5. REST API status (use configured port, not hardcoded 4000)
+            let api_port = config.api_port;
+            let api_running = if let Ok(addr) =
+                format!("127.0.0.1:{}", api_port).parse::<std::net::SocketAddr>()
+            {
                 if let Ok(res) = tokio::time::timeout(
                     std::time::Duration::from_millis(100),
                     tokio::net::TcpStream::connect(&addr),
@@ -727,12 +740,123 @@ async fn run_command(
                 let instructions = traz_integrations::adapters::setup_instructions(&tool)?;
                 println!("\n{}\n", instructions);
 
-                if (tool_lower == "claude" || tool_lower == "cursor" || tool_lower == "gemini")
-                    && !traz_embeddings::is_embedding_model_downloaded()
-                {
+                #[allow(non_snake_case, unused_variables)]
+                let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
+
+                // Auto-configure if the tool's CLI is available
+                let auto_cmd: Option<(&str, Vec<&str>)> = match tool_lower.as_str() {
+                    "claude" | "claude-code" => {
+                        Some(("claude", vec!["mcp", "add", "traz", "--", "traz", "mcp"]))
+                    }
+                    "codex" | "openai-codex" => {
+                        Some(("codex", vec!["mcp", "add", "traz", "--", "traz", "mcp"]))
+                    }
+                    "agy" | "antigravity" => {
+                        Some(("agy", vec!["mcp", "add", "traz", "--", "traz", "mcp"]))
+                    }
+                    _ => None,
+                };
+
+                if let Some((cli, args)) = auto_cmd {
+                    let cli_available = std::process::Command::new(cli)
+                        .arg("--version")
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false);
+
+                    if cli_available {
+                        let cmd_str = format!("{} {}", cli, args.join(" "));
+                        println!("  {GREEN}✓{RESET} {BOLD}{} CLI detected!{RESET}", cli);
+                        print!("  Run `{CYAN}{cmd_str}{RESET}` automatically? [Y/n] ");
+                        use std::io::Write;
+                        std::io::stdout().flush().ok();
+                        let mut response = String::new();
+                        std::io::stdin().read_line(&mut response).ok();
+                        let trimmed = response.trim().to_lowercase();
+                        if trimmed.is_empty() || trimmed == "y" || trimmed == "yes" {
+                            match std::process::Command::new(cli).args(&args).status() {
+                                Ok(s) if s.success() => {
+                                    println!(
+                                        "  {GREEN}✓{RESET} {BOLD}traz successfully added to {}!{RESET} Restart {} to activate.",
+                                        cli, cli
+                                    );
+                                }
+                                Ok(_) => println!(
+                                    "  {YELLOW}⚠{RESET} Command ran but returned a non-zero exit code. Try manually."
+                                ),
+                                Err(e) => println!("  {MAGENTA}✗{RESET} Failed to run: {}", e),
+                            }
+                        }
+                        println!();
+                    }
+                }
+
+                // Special: Cursor doesn't have a CLI, write config file directly
+                if tool_lower == "cursor" {
                     #[allow(non_snake_case, unused_variables)]
                     let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) =
                         display::get_colors();
+                    if let Some(home) = dirs::home_dir() {
+                        let cursor_dir = home.join(".cursor");
+                        let mcp_path = cursor_dir.join("mcp.json");
+
+                        // Read existing config or create new
+                        let existing: serde_json::Value = if mcp_path.exists() {
+                            std::fs::read_to_string(&mcp_path)
+                                .ok()
+                                .and_then(|s| serde_json::from_str(&s).ok())
+                                .unwrap_or_else(|| serde_json::json!({"mcpServers": {}}))
+                        } else {
+                            serde_json::json!({"mcpServers": {}})
+                        };
+
+                        let mut cursor_config = existing;
+                        cursor_config["mcpServers"]["traz"] = serde_json::json!({
+                            "command": "traz",
+                            "args": ["mcp"]
+                        });
+
+                        let json_str =
+                            serde_json::to_string_pretty(&cursor_config).unwrap_or_default();
+
+                        println!(
+                            "  Auto-configure Cursor by writing to {}? [Y/n] ",
+                            mcp_path.display()
+                        );
+                        use std::io::Write;
+                        std::io::stdout().flush().ok();
+                        let mut response = String::new();
+                        std::io::stdin().read_line(&mut response).ok();
+                        let trimmed = response.trim().to_lowercase();
+                        if trimmed.is_empty() || trimmed == "y" || trimmed == "yes" {
+                            if let Err(e) = std::fs::create_dir_all(&cursor_dir) {
+                                println!("  {MAGENTA}✗{RESET} Could not create ~/.cursor/: {}", e);
+                            } else if let Err(e) = std::fs::write(&mcp_path, &json_str) {
+                                println!(
+                                    "  {MAGENTA}✗{RESET} Could not write {}: {}",
+                                    mcp_path.display(),
+                                    e
+                                );
+                            } else {
+                                println!(
+                                    "  {GREEN}✓{RESET} {BOLD}traz added to Cursor!{RESET} Restart Cursor to activate."
+                                );
+                            }
+                        }
+                        println!();
+                    }
+                }
+
+                if (tool_lower == "claude"
+                    || tool_lower == "claude-code"
+                    || tool_lower == "cursor"
+                    || tool_lower == "gemini"
+                    || tool_lower == "agy"
+                    || tool_lower == "antigravity"
+                    || tool_lower == "codex"
+                    || tool_lower == "openai-codex")
+                    && !traz_embeddings::is_embedding_model_downloaded()
+                {
                     println!(
                         "  {YELLOW}⚠️  [WARNING]{RESET} {BOLD}Embedding model is missing.{RESET} Semantic search will not work.\n   Run {CYAN}`traz init --with-embeddings`{RESET} to download the model.\n"
                     );
@@ -863,11 +987,72 @@ async fn run_command(
 }
 
 async fn run_interactive() -> Result<()> {
-    banner::print_banner();
-    banner::print_interactive_welcome();
-
     let config = TrazConfig::resolve();
     let db = Arc::new(Db::open(&config.db_path)?);
+
+    let is_first_run = db.count_events().unwrap_or(0) == 0;
+
+    if is_first_run {
+        banner::print_banner();
+        println!("  Welcome to traz! The shared memory layer for AI coding tools.\n");
+        use dialoguer::{Input, Select, theme::ColorfulTheme};
+        let selections = &[
+            "🔌 Setup an AI tool (Claude, Cursor, etc)",
+            "📝 Log my first manual event",
+            "📖 Skip to interactive REPL",
+            "🚪 Exit",
+        ];
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("It looks like this is your first time here. What would you like to do?")
+            .default(0)
+            .items(&selections[..])
+            .interact()?;
+
+        println!();
+        match selection {
+            0 => {
+                let tool: String = Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Which tool? (claude, cursor, gemini, aider, warp)")
+                    .interact_text()?;
+                run_command(
+                    Commands::Setup {
+                        tool: tool.to_lowercase(),
+                    },
+                    &config,
+                    db.clone(),
+                    true,
+                )
+                .await?;
+            }
+            1 => {
+                let message: String = Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("What are you working on right now?")
+                    .interact_text()?;
+                run_command(
+                    Commands::Log {
+                        message,
+                        event_type: "decision".to_string(),
+                        tool: "cli".to_string(),
+                        diff: false,
+                    },
+                    &config,
+                    db.clone(),
+                    true,
+                )
+                .await?;
+            }
+            3 => {
+                banner::print_farewell();
+                return Ok(());
+            }
+            _ => {}
+        }
+    } else {
+        println!();
+        println!("  \x1b[38;5;240m─────────────────────────────────────────────────────\x1b[0m");
+        println!();
+        banner::print_interactive_welcome();
+    }
 
     // Set up Ctrl+C handler for graceful exit
     ctrlc::set_handler(move || {
@@ -885,7 +1070,6 @@ async fn run_interactive() -> Result<()> {
         line_buf.clear();
         let bytes = stdin.read_line(&mut line_buf)?;
         if bytes == 0 {
-            // EOF (e.g. piped input ended)
             banner::print_farewell();
             break;
         }
@@ -905,9 +1089,10 @@ async fn run_interactive() -> Result<()> {
                 continue;
             }
             "clear" | "cls" => {
-                // ANSI clear screen
                 print!("\x1b[2J\x1b[H");
-                banner::print_banner();
+                if is_first_run {
+                    banner::print_banner();
+                }
                 continue;
             }
             "banner" => {
@@ -924,42 +1109,35 @@ async fn run_interactive() -> Result<()> {
             _ => {}
         }
 
-        // Parse the input as a traz subcommand
-        // Build argv: ["traz", ...tokens]
         let tokens = shell_split(input);
         let argv: Vec<&str> = std::iter::once("traz")
             .chain(tokens.iter().map(|s| s.as_str()))
             .collect();
 
-        // Try to parse as a Cli
         match Cli::try_parse_from(&argv) {
             Ok(parsed) => {
                 if let Some(cmd) = parsed.command {
-                    // Prevent launching sub-servers inside REPL
                     match &cmd {
                         Commands::Serve { .. } => {
-                            print_info(
-                                "Use `traz serve` directly from your shell (not inside interactive mode).",
+                            eprintln!(
+                                "  \x1b[33m⚠\x1b[0m Cannot run server inside interactive mode. Run `traz serve` directly."
                             );
-                            continue;
                         }
                         Commands::Mcp => {
-                            print_info(
-                                "Use `traz mcp` directly from your shell (not inside interactive mode).",
+                            eprintln!(
+                                "  \x1b[33m⚠\x1b[0m Cannot run MCP server inside interactive mode. Run `traz mcp` directly."
                             );
-                            continue;
                         }
-                        _ => {}
-                    }
-                    if let Err(e) = run_command(cmd, &config, db.clone(), true).await {
-                        eprintln!("  \x1b[31m✗\x1b[0m {}", e);
+                        _ => {
+                            if let Err(e) = run_command(cmd, &config, db.clone(), true).await {
+                                eprintln!("  \x1b[31m✗\x1b[0m Error: {}", e);
+                            }
+                        }
                     }
                 }
             }
             Err(e) => {
-                // clap error — show a friendlier message
                 let msg = e.to_string();
-                // Only show the first meaningful line
                 if let Some(first_line) = msg.lines().find(|l| !l.trim().is_empty()) {
                     eprintln!("  \x1b[31m✗\x1b[0m {}", first_line.trim());
                 } else {

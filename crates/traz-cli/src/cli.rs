@@ -14,11 +14,12 @@ use clap::{Parser, Subcommand};
                   traz add --tool cursor --event-type bug_fix --title \"Fixed reconnect\"\n  \
                   traz recent --limit 5\n  \
                   traz search \"memory leak\"\n  \
+                  traz recap\n  \
                   traz context\n  \
                   traz show 42\n  \
                   traz capture\n  \
-                  traz serve --port 4000\n  \
                   traz setup claude\n  \
+                  traz doctor\n  \
                   traz mcp"
 )]
 pub struct Cli {

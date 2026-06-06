@@ -153,6 +153,36 @@ pub fn setup_instructions(tool: &str) -> Result<String> {
             ))
         }
 
+        "codex" | "openai-codex" => Ok("OpenAI Codex CLI Integration\n\
+             ─────────────────────────────\n\
+             Run this command to connect traz:\n\n\
+               codex mcp add traz -- traz mcp\n\n\
+             Alternatively, add this to ~/.codex/config.toml manually:\n\n\
+             [[mcp_servers]]\n\
+             name = \"traz\"\n\
+             command = \"traz\"\n\
+             args = [\"mcp\"]\n\n\
+             Tip: Codex automatically reads the server's 'instructions' during initialization.\n\
+             Traz will inject a context summary to immediately catch Codex up on your project."
+            .to_string()),
+
+        "agy" | "antigravity" => Ok("Antigravity (agy) MCP Integration\n\
+             ──────────────────────────────────\n\
+             Run this command to connect traz:\n\n\
+               agy mcp add traz -- traz mcp\n\n\
+             Alternatively, add this to your agy workspace config manually:\n\n\
+               {\n\
+                 \"mcpServers\": {\n\
+                   \"traz\": {\n\
+                     \"command\": \"traz\",\n\
+                     \"args\": [\"mcp\"]\n\
+                   }\n\
+                 }\n\
+               }\n\n\
+             Tip: Once connected, agy will automatically retrieve your traz checkpoint at\n\
+             the start of every chat session!"
+            .to_string()),
+
         _ => Ok("Generic MCP Integration\n\
              ───────────────────────\n\
              traz exposes an MCP stdio server. Run:\n\n\

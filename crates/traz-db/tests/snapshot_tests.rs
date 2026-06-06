@@ -25,7 +25,9 @@ fn test_semantic_search_snapshot() {
     match db.semantic_search("login", 1) {
         Ok(results) => {
             if results.is_empty() {
-                println!("Semantic search returned empty results. (Likely embeddings failed to generate in CI). Skipping snapshot assertion.");
+                println!(
+                    "Semantic search returned empty results. (Likely embeddings failed to generate in CI). Skipping snapshot assertion."
+                );
                 println!("Snapshot (Mock): Title: Authentication logic, Score: 0.85");
             } else {
                 let snapshot_data = results

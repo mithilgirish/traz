@@ -13,6 +13,9 @@ const STABLE_TOOLS: &[&str] = &[
     "traz_context",
     "traz_stats",
     "traz_checkpoint",
+    "traz_recap",
+    "traz_show",
+    "traz_diff",
 ];
 
 const EXPERIMENTAL_TOOLS: &[&str] = &["traz_timeline", "traz_delete", "traz_compress"];
@@ -83,7 +86,13 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
                     "serverInfo": {
                         "name": "traz",
                         "version": env!("CARGO_PKG_VERSION")
-                    }
+                    },
+                    "instructions": "You have access to traz, a local-first engineering memory layer. \
+            ALWAYS call traz_recent at the start of every new chat to retrieve the latest checkpoint and resume context. \
+            Use format='dense' for all traz tool calls to save 60-75% of tokens. \
+            Use traz_add to log significant decisions, bug fixes, and architectural changes during the session. \
+            Use traz_checkpoint before the context window fills up to save progress and enable a clean restart. \
+            Use traz_recap for a quick summary of what happened in the last 24h instead of reading the full timeline."
                 }
             }),
 
@@ -215,6 +224,17 @@ fn build_tool_definitions(experimental: bool) -> Value {
                     "id": { "type": "number", "description": "The ID of the event" }
                 },
                 "required": ["id"]
+            }
+        }),
+        json!({
+            "name": "traz_recap",
+            "description": "Get a time-bounded summary of recent engineering activity. Perfect for morning standups or quick 'what happened recently?' context. Returns events from the last N hours in a clean, human-readable format. Token-efficient by design.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "hours": { "type": "number", "description": "Number of hours to look back (default 24, max 168=1week)" },
+                    "format": { "type": "string", "description": "Output format: 'markdown' (default) or 'dense' (AI-optimized, ~50-70% fewer tokens)" }
+                }
             }
         }),
     ];
@@ -522,6 +542,59 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                     "Checkpoint created with ID {}. Please instruct the user to start a new chat session to clear context bloat.",
                     id
                 )),
+                Err(e) => tool_err(&e.to_string()),
+            }
+        }
+        "traz_recap" => {
+            let hours = args
+                .get("hours")
+                .and_then(|h| h.as_u64())
+                .unwrap_or(24)
+                .min(168) as i64;
+            let format =
+                traz_core::OutputFormat::from_str_opt(args.get("format").and_then(|f| f.as_str()));
+
+            let since = chrono::Utc::now()
+                - chrono::Duration::try_hours(hours).unwrap_or(chrono::Duration::zero());
+
+            match db.get_filtered_events(100, None, None, Some(since), None) {
+                Ok(events) if events.is_empty() => tool_ok(&format!(
+                    "No events in the last {} hours. You're starting fresh!",
+                    hours
+                )),
+                Ok(events) => {
+                    let mut output =
+                        format!("Recap — Last {} hours ({} events)\n", hours, events.len());
+                    output.push_str("─────────────────────────────────────\n");
+                    match format {
+                        traz_core::OutputFormat::Dense => {
+                            let mut budget = traz_core::TokenBudget::unlimited();
+                            let dense = traz_core::build_optimized_context(
+                                events,
+                                traz_core::OutputFormat::Dense,
+                                &mut budget,
+                                false,
+                                None,
+                            );
+                            output.push_str(&dense);
+                        }
+                        traz_core::OutputFormat::Markdown => {
+                            for e in &events {
+                                output.push_str(&format!(
+                                    "• {} [{}·{}]{}\n",
+                                    e.title,
+                                    e.tool,
+                                    e.event_type,
+                                    e.summary
+                                        .as_deref()
+                                        .map(|s| format!(" — {}", &s[..s.len().min(80)]))
+                                        .unwrap_or_default()
+                                ));
+                            }
+                        }
+                    }
+                    tool_ok(&output)
+                }
                 Err(e) => tool_err(&e.to_string()),
             }
         }

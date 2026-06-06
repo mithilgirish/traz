@@ -160,7 +160,8 @@ pub fn generate_pre_push_hook() -> String {
     r#"#!/bin/sh
 # traz: auto-capture git pushes as engineering events
 current_branch=$(git branch --show-current)
-remote_url=$(cat .git/config 2>/dev/null | grep url | head -1 | awk '{print $3}')
+# Use `git remote get-url` to avoid exposing credentials that may be embedded in .git/config URLs
+remote_url=$(git remote get-url origin 2>/dev/null || echo "unknown")
 commits=$(git log "origin/$current_branch..HEAD" --oneline 2>/dev/null | head -10)
 
 traz add --tool git --event-type pre_push \
