@@ -41,10 +41,6 @@ pub enum Commands {
         /// Initialize with semantic search embeddings (fastembed model)
         #[arg(long, default_value_t = false)]
         with_embeddings: bool,
-
-        /// Create a project-local .traz directory for isolation
-        #[arg(long, default_value_t = false)]
-        local: bool,
     },
 
     /// Show recent engineering events (newest first)
@@ -76,6 +72,13 @@ pub enum Commands {
         /// Merge near-duplicate events
         #[arg(long, default_value_t = false)]
         deduplicate: bool,
+    },
+
+    /// Summarize recent events from a given timeframe (morning recap)
+    Recap {
+        /// Hours to recap
+        #[arg(long, default_value_t = 24)]
+        hours: u32,
     },
 
     /// Show the full chronological timeline (oldest first)

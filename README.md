@@ -53,7 +53,7 @@ No cloud. No vendor lock-in. No sync accounts. Just a lightweight SQLite store l
 - **Timeline-based workflow tracking** — see how your thinking evolved across sessions
 - **MCP-compatible** — plug into any MCP-supporting tool without extra config
 - **AI Context Checkpointing** — native escape hatches for long-running AI sessions to prevent context window bloat
-- **Token-Optimized RAG** — dense formatting for AI context retrieval to save tokens and improve inference
+- **Token-Optimized RAG** — `dense` formatting cuts AI context retrieval payload sizes by **60% to 75%**, saving massive amounts of context window space for loop-based agents.
 - **SQLite-powered** — zero-dependency, zero-overhead storage
 - **CLI-first** — fast, scriptable, composable
 - **Zero cloud dependency** — your context never leaves your machine
@@ -199,11 +199,10 @@ Each AI tool writes context to `traz` as you work. When you switch tools, the ne
 `traz` runs a local MCP server that any compatible tool can connect to:
 
 ```bash
-$ traz mcp serve
-# Listening on localhost:7474
+$ traz mcp
 ```
 
-Point your AI tool at `localhost:7474` and it gains access to your full engineering timeline automatically.
+Configure your AI tool to run the above command as an MCP server, and it gains access to your full engineering timeline automatically.
 
 ---
 

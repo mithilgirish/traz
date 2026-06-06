@@ -29,10 +29,21 @@ async fn main() -> Result<()> {
     let mut config = TrazConfig::resolve();
 
     // Handle project-local initialization before opening the database
-    if let Some(Commands::Init { local: true, .. }) = &cli.command {
+    if let Some(Commands::Init { .. }) = &cli.command {
         let local_dir = std::path::Path::new(".traz");
         if !local_dir.exists() {
             std::fs::create_dir_all(local_dir)?;
+            let gitignore_path = std::path::Path::new(".gitignore");
+            let contents = std::fs::read_to_string(gitignore_path).unwrap_or_default();
+            if !contents.contains(".traz/") {
+                use std::io::Write;
+                if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(gitignore_path) {
+                    if !contents.ends_with('\n') && !contents.is_empty() {
+                        let _ = writeln!(file);
+                    }
+                    let _ = writeln!(file, ".traz/");
+                }
+            }
             // Re-resolve so we pick up the new local directory
             config = TrazConfig::resolve();
         }
@@ -68,7 +79,6 @@ async fn run_command(
         Commands::Init {
             hook,
             with_embeddings,
-            local: _,
         } => {
             #[allow(non_snake_case, unused_variables)]
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
@@ -213,6 +223,23 @@ async fn run_command(
             } else {
                 print_header(&format!("Recent Events ({})", events.len()));
                 print_events(&events);
+                println!();
+            }
+        }
+
+        Commands::Recap { hours } => {
+            #[allow(non_snake_case, unused_variables)]
+            let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
+            let limit = 100;
+            let since = chrono::Utc::now() - chrono::Duration::try_hours(hours as i64).unwrap_or(chrono::Duration::zero());
+            let events = db.get_filtered_events(limit, None, None, Some(since), None)?;
+            if events.is_empty() {
+                print_empty(&format!("No events found in the last {} hours. You're starting fresh!", hours));
+            } else {
+                print_header(&format!("Morning Recap (Last {} hours)", hours));
+                print_events(&events);
+                println!();
+                println!("  {DIM}Tip: Feed this into Claude or Cursor to quickly catch them up.{RESET}");
                 println!();
             }
         }

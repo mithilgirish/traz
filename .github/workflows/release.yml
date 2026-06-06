@@ -86,6 +86,10 @@ jobs:
 
       - name: Build release binary
         run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y libssl-dev pkg-config
+          fi
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }} --bin traz
           else
