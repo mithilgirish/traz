@@ -17,7 +17,9 @@ edition = "2024"
 authors = ["Mithil Girish"]
 license = "MIT"
 repository = "https://github.com/mithilgirish/traz"
-description = "A shared engineering context layer for AI coding tools"
+description = "A local-first engineering memory layer and MCP server for AI coding tools"
+keywords = ["mcp", "ai", "claude", "llm", "context"]
+categories = ["development-tools", "command-line-utilities"]
 
 [workspace.dependencies]
 anyhow = "1.0"

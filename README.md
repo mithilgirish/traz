@@ -1,111 +1,159 @@
 <p align="center">
-  <img width="1774" alt="traz" src="https://github.com/user-attachments/assets/f4b969a0-b23e-400b-a012-38f05e20973b" />
+  <img width="800" alt="traz" src="https://github.com/user-attachments/assets/f4b969a0-b23e-400b-a012-38f05e20973b" />
 </p>
 
 <p align="center">
-  <strong>trace. context. continuity.</strong><br/>
-  <sub>A local-first developer memory layer that gives AI coding tools a shared brain.</sub>
+  <strong>Trace. Context. Continuity.</strong><br/>
+  <sub>A local-first engineering memory layer and MCP server that provides AI coding tools with a shared, persistent context architecture.</sub>
 </p>
 
 <p align="center">
   <a href="https://github.com/mithilgirish/traz/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+  
   <img src="https://img.shields.io/badge/MCP-compatible-green" alt="MCP compatible" />
+  <img src="https://img.shields.io/badge/SQLite-Local_First-purple" alt="SQLite" />
 </p>
 
 ---
 
-```bash
-$ traz recent
+## Table of Contents
+- [Overview](#overview)
+- [The Context Fragmentation Problem](#the-context-fragmentation-problem)
+- [Core Architecture & Design](#core-architecture--design)
+- [Installation Guide](#installation-guide)
+- [Initialization & Configuration](#initialization--configuration)
+- [Command Line Interface Reference](#command-line-interface-reference)
+  - [Ingestion Commands](#ingestion-commands)
+  - [Exploration Commands](#exploration-commands)
+  - [Maintenance Commands](#maintenance-commands)
+- [Terminal User Interface (TUI)](#terminal-user-interface-tui)
+- [Agent Integration (MCP)](#agent-integration-mcp)
+  - [Supported AI Environments](#supported-ai-environments)
+  - [Manual MCP Configuration](#manual-mcp-configuration)
+- [Advanced Subsystems](#advanced-subsystems)
+  - [Semantic Vector Search](#semantic-vector-search)
+  - [Context Window Compression (Dense Format)](#context-window-compression-dense-format)
+- [Security & Privacy](#security--privacy)
+- [Troubleshooting & FAQ](#troubleshooting--faq)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
-✓ fixed websocket reconnect issue        [claude-code · 2h ago]
-✓ updated auth middleware                [cursor · 5h ago]
-✓ traced memory leak in queue worker     [warp · 1d ago]
-✓ reverted broken cache optimization     [aider · 2d ago]
+---
+
+## Overview
+
+`traz` is a local-first engineering memory layer designed specifically for AI-augmented development. 
+
+By capturing debugging history, architectural decisions, file modifications, and workflow traces as you code, `traz` establishes a highly searchable, persistent context timeline. This timeline is securely stored in a local SQLite vector database and automatically exposed via the **Model Context Protocol (MCP)**. This enables any compatible AI agent (Claude Code, Cursor, Aider, Gemini CLI, OpenAI Codex) to instantly synchronize context without manual developer intervention or copy-pasting.
+
+## The Context Fragmentation Problem
+
+Modern software development increasingly relies on multiple, specialized AI agents. A standard workflow might involve:
+1. Triaging a stack trace in Claude Code.
+2. Refactoring a dense component within Cursor IDE.
+3. Generating unit tests via a terminal agent like Aider or Antigravity.
+
+At every tool boundary, context is lost. The AI in the IDE does not inherently know what the AI in the terminal just fixed. Every new session starts as an isolated environment, forcing developers to manually rebuild the context window.
+
+`traz` resolves this by acting as a persistent context plane. It ensures that subsequent AI sessions—regardless of the tool—inherit the context of previous decisions, mitigating context loss, reducing LLM token duplication, and preventing regression of thought.
+
+## Core Architecture & Design
+
+The `traz` architecture is built upon three primary pillars:
+
+1. **Local Timeline Engine (SQLite):** A zero-dependency, local-first storage mechanism. It tracks event schemas across sessions, ensuring that proprietary source code and architectural context never leave the local machine. There are no cloud accounts, no sync delays, and no vendor lock-in.
+2. **Hybrid Vector Search:** Leverages the `fastembed-rs` library to execute ONNX-accelerated embedding generation locally. It implements Reciprocal Rank Fusion (RRF) to intelligently merge exact keyword matches (FTS5) with semantic vector similarity, ensuring high-fidelity context retrieval even when vocabulary drifts.
+3. **MCP Server Integration:** Implements the open Model Context Protocol to serve context transparently to supported AI agents. By utilizing an engineered "Dense Output Format," it compresses context payload sizes by up to 75%, preserving valuable context window capacity for the LLM's actual reasoning process.
+
+```mermaid
+graph TD
+    A[Claude Code] -->|stdio / MCP| C(traz MCP Server)
+    B[Cursor IDE] -->|stdio / MCP| C
+    D[CLI / Shell Hooks] -->|Commands| C
+    C --> E[(SQLite Vector DB)]
+    C --> F[fastembed-rs ONNX]
+    E --> G[Timeline Engine]
 ```
 
----
+For an in-depth review of the underlying schema, migration logic, and RRF mathematics, please refer to the [Architecture Documentation](./docs/ARCHITECTURE.md).
 
-## The Problem
+## Installation Guide
 
-AI coding workflows are fragmented by design.
+### Pre-requisites
+- Rust toolchain (1.75.0 or higher)
+- Cargo package manager
 
-You debug a gnarly issue in Claude Code, switch to Cursor to refactor, open Warp to run some tests — and at every step, you're starting from scratch. The context is gone. The reasoning is lost. The debugging history never existed.
-
-Every AI session is an island.
-
-**`traz` builds the bridge.**
-
----
-
-## What It Does
-
-`traz` is a local-first engineering memory layer. It captures debugging history, architectural decisions, and workflow traces as you code — and makes that context available to every AI tool in your stack.
-
-No cloud. No vendor lock-in. No sync accounts. Just a lightweight SQLite store living on your machine, accessible to any MCP-compatible tool.
-
----
-
-## Features
-
-- **Local-first** — everything stays on your machine, always
-- **Shared engineering memory** — one context layer across all your AI tools
-- **Searchable debugging history** — find that fix you made three days ago in two seconds
-- **Timeline-based workflow tracking** — see how your thinking evolved across sessions
-- **MCP-compatible** — plug into any MCP-supporting tool without extra config
-- **AI Context Checkpointing** — native escape hatches for long-running AI sessions to prevent context window bloat
-- **Token-Optimized RAG** — `dense` formatting cuts AI context retrieval payload sizes by **60% to 75%**, saving massive amounts of context window space for loop-based agents.
-- **SQLite-powered** — zero-dependency, zero-overhead storage
-- **CLI-first** — fast, scriptable, composable
-- **Zero cloud dependency** — your context never leaves your machine
-
----
-
-## Installation
-
+### Via Cargo
+The recommended installation method for most users.
 ```bash
 cargo install traz
 ```
 
-<details>
-<summary>Build from source</summary>
-
+### Build from Source
+For contributors or users requiring specific branch deployments.
 ```bash
-git clone https://github.com/mithilgirish/traz
+git clone https://github.com/mithilgirish/traz.git
 cd traz
 cargo build --release
-./target/release/traz --version
+
+# Optional: Add to PATH systematically
+sudo cp target/release/traz /usr/local/bin/
 ```
 
-</details>
+### Verification
+Ensure the binary is correctly linked and the embedding model engine is accessible.
+```bash
+traz doctor
+```
 
----
+## Initialization & Configuration
 
-## Documentation
-
-For a comprehensive guide on using `traz` and integrating it with your AI tools, please see the [Documentation](./docs/index.md):
-
-- 🚀 [**Quickstart**](./docs/QUICKSTART.md) - Get up and running in 60 seconds.
-- 📖 [**User Guide**](./docs/USER_GUIDE.md) - CLI commands, semantic search, interactive TUI, and advanced filtering.
-- 🔌 [**MCP Integration**](./docs/MCP_INTEGRATION.md) - How to connect Claude Code, Cursor, Aider, and Warp to the `traz` context server.
-- 🏗️ [**Architecture**](./docs/ARCHITECTURE.md) - A deep dive into the SQLite vector storage, RRF search logic, and zero-cloud design.
-
----
-
-## Usage
-
-### View recent activity across all tools
+Initialize `traz` within your repository to establish the local timeline directory (`.traz/`). This directory acts as the nexus for your project's history.
 
 ```bash
-$ traz recent
-
-✓ fixed websocket reconnect issue        [claude-code · 2h ago]
-✓ updated auth middleware                [cursor · 5h ago]
-✓ traced memory leak in queue worker     [warp · 1d ago]
-✓ reverted broken cache optimization     [aider · 2d ago]
+cd your-project
+traz init
 ```
 
-### Search your engineering history
+Running `traz init` performs the following automated steps:
+1. Creates the `.traz/` local directory.
+2. Initializes the SQLite schema (`traz.db`) and vector index.
+3. Automatically appends `.traz/` to your `.gitignore` to prevent committing the database to remote version control.
 
+## Command Line Interface Reference
+
+The CLI is designed to be highly composable, scriptable for CI/CD integration, and readable for daily workflow monitoring.
+
+### Ingestion Commands
+
+**Log Manual Context:**
+Append a manual note, architectural decision, or debugging trace directly to the timeline.
+```bash
+traz log "traced root cause of memory leak to unbounded queue growth in the worker pool"
+```
+
+**Add Structured Events:**
+Useful for shell aliases or git hooks.
+```bash
+traz add --tool cursor --event-type bug_fix --title "Fixed auth race condition"
+```
+
+### Exploration Commands
+
+**View Recent Activity:**
+Fetch a chronological list of the most recent events across all tools.
+```bash
+$ traz recent --limit 5
+
+[claude-code · 2h ago] fixed websocket reconnect issue
+[cursor · 5h ago] updated auth middleware
+[warp · 1d ago] traced memory leak in queue worker
+[aider · 2d ago] reverted broken cache optimization
+```
+
+**Search Engineering History:**
+Perform keyword searches against the timeline.
 ```bash
 $ traz search auth
 
@@ -116,10 +164,89 @@ Fixed JWT refresh race condition
 Updated auth middleware retry logic
 ```
 
-### Semantic Search
+**View Workflow Timeline:**
+Render a bulleted workflow trace of operations, useful for generating PR descriptions or commit summaries.
+```bash
+$ traz timeline
 
-`traz` automatically generates local embeddings for your events using ONNX and `fastembed-rs`. 
-This allows you to find contextually relevant history even if you don't use the exact keywords.
+• created websocket handler
+• debugged reconnect issue
+• added retry backoff
+• verified with local tests
+```
+
+**Time-Bounded AI Recap:**
+Generate a time-bounded summary, commonly used for daily standups or morning synchronization.
+```bash
+$ traz recap --hours 24
+```
+
+### Maintenance Commands
+
+**Context Checkpointing:**
+Save a named snapshot of the current state. Useful when switching branches or finalizing a massive refactor.
+```bash
+traz checkpoint --message "completed auth migration"
+```
+
+**Backfill Embeddings:**
+Generate missing vector embeddings for older events ingested prior to vector support or during offline periods.
+```bash
+traz backfill-embeddings
+```
+
+## Terminal User Interface (TUI)
+
+For an interactive, visually structured view of the repository's history and AI traces, `traz` ships with a native TUI.
+
+```bash
+traz tui
+```
+
+The TUI provides:
+- Split-pane navigation of historical checkpoints.
+- Interactive filtering by AI tool, event type, or timestamp.
+- Detailed inspection of specific debug logs or diffs associated with an event.
+
+## Agent Integration (MCP)
+
+`traz` acts as an MCP stdio server. It features auto-detecting setup workflows to register itself across major AI tools effortlessly.
+
+### Supported AI Environments
+
+Run the setup command corresponding to your primary tool. The wizard will automatically locate the tool's configuration file and inject the necessary MCP routing logic.
+
+```bash
+traz setup claude   # Configures Claude Code
+traz setup cursor   # Modifies ~/.cursor/mcp.json
+traz setup codex    # Configures OpenAI Codex CLI
+traz setup gemini   # Configures Gemini CLI
+traz setup agy      # Configures Antigravity CLI
+```
+
+### Manual MCP Configuration
+
+For tools not supported by the interactive wizard (such as Aider or custom agents), configure your agent to execute `traz` with the `mcp` subcommand.
+
+**Example `mcp.json` structure:**
+```json
+{
+  "mcpServers": {
+    "traz": {
+      "command": "traz",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Once configured, the AI tool will automatically query the `traz` server on initialization, retrieve the latest checkpoints, and restore context natively. For further details, refer to the [Agent Integration Guide](./docs/AGENT_INTEGRATION.md).
+
+## Advanced Subsystems
+
+### Semantic Vector Search
+
+By default, `traz` generates local embeddings for all ingested events using an ONNX-accelerated MiniLM model (`fastembed-rs`). This enables semantic retrieval, allowing you to find contextually relevant history even when exact keywords are omitted.
 
 ```bash
 $ traz search "database connection pooling"
@@ -133,145 +260,74 @@ $ traz search "database connection pooling"
     Tool: gemini       Type: refactor   Age: 1w ago     Tags: #db #performance
 ```
 
-### Backfill Missing Embeddings
+### Context Window Compression (Dense Format)
 
-If you imported old events or just added the embeddings feature, you can generate missing vectors in bulk:
+Long-running projects accumulate extensive, verbose timelines. Standard JSON serialization of this data rapidly depletes an LLM's context window.
 
-```bash
-$ traz backfill-embeddings
-```
+`traz` implements a `--dense` formatting protocol over MCP. Instead of passing nested JSON arrays to the agent, the server parses the historical data into an ultra-compact plaintext format, stripping redundant schema keys and whitespace. This methodology consistently compresses context payload sizes by **60% to 75%**.
 
-### View a workflow timeline
+## Security & Privacy
 
-```bash
-$ traz timeline
+Security is foundational to `traz`. 
+- **Zero Telemetry:** The CLI binary contains no telemetry, analytics, or remote tracking systems.
+- **Local Isolation:** The SQLite database is stored locally in your project folder (`.traz/traz.db`) and is strictly `.gitignore`d. No data is transmitted to an external server.
+- **Embedding Generation:** Semantic vector generation runs completely on-device using ONNX execution providers. Your proprietary commit messages and architecture plans are never sent to external embedding APIs.
 
-• created websocket handler
-• debugged reconnect issue
-• added retry backoff
-• verified with local tests
-```
+## Troubleshooting & FAQ
 
-### Log context manually
+**Q: `traz setup cursor` fails to detect my configuration.**
+A: Ensure you have initialized Cursor at least once so the `~/.cursor` configuration directory exists. You can manually append the JSON block defined in the Manual MCP Configuration section.
 
-```bash
-$ traz log "traced root cause of memory leak to unbounded queue growth"
-```
+**Q: Semantic search is returning errors or panicking in CI environments.**
+A: In headless CI environments missing certain runtime libraries, `fastembed-rs` may fail to generate embeddings. Set the `TRAZ_DISABLE_EMBEDDINGS=1` environment variable during automated testing to bypass vector generation.
 
-### Filter by tool
-
-```bash
-$ traz recent --tool cursor
-$ traz recent --tool claude-code
-```
-
----
-
-## How It Works
-
-See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for a deep dive into the system design.
-
-```
-┌─────────────────────────────────────┐
-│           Your AI Tools             │
-│  Claude Code · Cursor · Gemini CLI  │
-│  Warp · Aider · Ollama · Agents     │
-└──────────────────┬──────────────────┘
-                   │  MCP / CLI
-                   ▼
-         ┌─────────────────┐
-         │      traz       │
-         │  context layer  │
-         └────────┬────────┘
-                  │
-                  ▼
-     ┌────────────────────────┐
-     │   Local Timeline Engine │
-     │   SQLite / Context Store│
-     └────────────────────────┘
-```
-
-Each AI tool writes context to `traz` as you work. When you switch tools, the new session inherits that context — understanding what was already tried, what was fixed, and why decisions were made.
-
----
-
-## MCP Integration
-
-`traz` runs a local MCP server that any compatible tool can connect to:
-
-```bash
-$ traz mcp
-```
-
-Configure your AI tool to run the above command as an MCP server, and it gains access to your full engineering timeline automatically.
-
----
-
-## Supported Tools
-
-| Tool | Status |
-|---|---|
-| Claude Code | ✅ Supported |
-| Cursor | ✅ Supported |
-| Gemini CLI | ✅ Supported |
-| Antigravity (agy) | ✅ Supported |
-| Warp | ✅ Supported |
-| Aider | ✅ Supported |
-| Ollama | ✅ Supported |
-| Local MCP agents | ✅ Supported |
-
----
+**Q: How do I clear my context timeline?**
+A: You can purge the local memory by simply deleting the database file: `rm -rf .traz/`. Re-run `traz init` to start fresh.
 
 ## Roadmap
 
-**v0.1**
-- [x] Local timeline storage
-- [x] CLI commands — `recent`, `search`, `timeline`, `log`
-- [x] Search and history system
-- [x] MCP server
-- [x] Automatic git integration
-- [x] Tool adapters
-- [x] Semantic search with local embeddings
-- [x] Local vector indexing
-- [x] AI trace visualization (TUI)
-- [x] Context compression for long-running projects
-- [x] Workflow snapshots (Checkpoints)
+**v0.1 (Current)**
+- [x] Local timeline storage (SQLite)
+- [x] CLI commands (recent, search, timeline, log, recap)
+- [x] Context and history retrieval system
+- [x] Native MCP server implementation
+- [x] Automatic git hook integrations
+- [x] Interactive Tool Setup Adapters
+- [x] Semantic search via local ONNX embeddings
+- [x] Terminal UI (TUI) Dashboard
+- [x] Token-optimized Dense output formats
+- [x] Workflow Checkpoints
 
-**Future**
-- [ ] VSCode extension
-
----
-
-## Philosophy
-
-Engineering context should persist across AI tools — not uploaded to a vendor, not locked into one product, not lost when you close a tab.
-
-`traz` treats your debugging history, architectural decisions, and workflow reasoning as first-class artifacts: stored locally, searchable instantly, available to every tool in your stack.
-
-It's the missing memory layer for AI-native development.
-
----
+**Future Proposals**
+- [ ] VSCode and JetBrains native extensions
+- [ ] Network-level team synchronization (Opt-in)
+- [ ] Advanced Graph visualizations
 
 ## Contributing
 
-Contributions are welcome. Please open an issue before submitting a large PR so we can align on direction first.
+We welcome contributions from the community. If you plan to introduce significant architectural changes or core database migrations, please open an issue first to discuss the proposed design.
 
+### Development Workflow
 ```bash
-git clone https://github.com/mithilgirish/traz
+# Clone the repository
+git clone https://github.com/mithilgirish/traz.git
 cd traz
+
+# Run test suite
 cargo test
+
+# Ensure formatting and linting pass
+cargo fmt --all -- --check
+cargo clippy -- -D warnings
 ```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
-
----
+Please review the [CONTRIBUTING.md](./CONTRIBUTING.md) for strict code style guidelines and testing protocols prior to submitting Pull Requests.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE) for details.
+This project is licensed under the [MIT License](./LICENSE). All contributions are subject to these licensing terms.
 
 ---
-
 <p align="center">
   <sub>Built for developers who switch tools, not context.</sub>
 </p>
