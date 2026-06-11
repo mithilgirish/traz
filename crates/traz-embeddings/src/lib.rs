@@ -27,7 +27,10 @@ pub fn get_embedder() -> Result<&'static Mutex<TextEmbedding>> {
 /// Generate a vector embedding for a single string.
 pub fn embed_text(text: &str) -> Result<Vec<f32>> {
     let embedder_mutex = get_embedder()?;
-    let mut embedder = embedder_mutex.lock().unwrap();
+    let mut embedder = match embedder_mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     let embeddings = embedder.embed(vec![text], None)?;
     if let Some(embedding) = embeddings.into_iter().next() {
         Ok(embedding)

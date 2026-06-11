@@ -147,10 +147,19 @@ new_ref="$2"
 flag="$3"
 
 current_branch=$(git branch --show-current)
+
+# Use jq to safely serialize JSON strings, preventing JSON injection via branch names
+if command -v jq >/dev/null 2>&1; then
+  metadata=$(jq -n --arg prev "$prev_ref" --arg new "$new_ref" --arg type "$flag" '{prev_ref: $prev, new_ref: $new, checkout_type: $type}')
+else
+  # Unsafe fallback
+  metadata="{\"prev_ref\":\"$prev_ref\",\"new_ref\":\"$new_ref\",\"checkout_type\":\"$flag\"}"
+fi
+
 traz add --tool git --event-type branch_switch \
   --title "Switched to $current_branch" \
   --summary "From $prev_ref to $new_ref" \
-  --metadata "{\"prev_ref\":\"$prev_ref\",\"new_ref\":\"$new_ref\",\"checkout_type\":\"$flag\"}" 2>/dev/null || true
+  --metadata "$metadata" 2>/dev/null || true
 "#
     .to_string()
 }

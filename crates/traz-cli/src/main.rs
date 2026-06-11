@@ -36,17 +36,12 @@ async fn main() -> Result<()> {
             let gitignore_path = std::path::Path::new(".gitignore");
             let contents = std::fs::read_to_string(gitignore_path).unwrap_or_default();
             if !contents.contains(".traz/") {
-                use std::io::Write;
-                if let Ok(mut file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(gitignore_path)
-                {
-                    if !contents.ends_with('\n') && !contents.is_empty() {
-                        let _ = writeln!(file);
-                    }
-                    let _ = writeln!(file, ".traz/");
-                }
+                let to_append = if !contents.ends_with('\n') && !contents.is_empty() {
+                    "\n.traz/\n"
+                } else {
+                    ".traz/\n"
+                };
+                let _ = safe_write(gitignore_path, to_append, true);
             }
             // Re-resolve so we pick up the new local directory
             config = TrazConfig::resolve();
@@ -105,33 +100,37 @@ async fn run_command(
                 let mut injected_count = 0;
                 let cwd = std::env::current_dir().unwrap_or_default();
 
-                for filename in common_files {
-                    let path = cwd.join(filename);
-                    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-                    if !existing.contains("traz_add") {
-                        let new_content = if existing.is_empty() {
-                            format!("{}\n", prompt)
-                        } else {
-                            format!("{}\n\n{}\n", existing, prompt)
-                        };
-                        if std::fs::write(&path, new_content).is_ok() {
-                            injected_count += 1;
+                if confirm_prompt(
+                    "  Auto-inject Active Sync rules into current project (.cursorrules, CLAUDE.md, etc)?",
+                ) {
+                    for filename in common_files {
+                        let path = cwd.join(filename);
+                        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                        if !existing.contains("traz_add") {
+                            let new_content = if existing.is_empty() {
+                                format!("{}\n", prompt)
+                            } else {
+                                format!("{}\n\n{}\n", existing, prompt)
+                            };
+                            if safe_write(&path, &new_content, false).is_ok() {
+                                injected_count += 1;
+                            }
                         }
                     }
-                }
 
-                // Special case for Antigravity/Gemini which needs nested directory
-                if std::fs::create_dir_all(".agents/rules").is_ok() {
-                    let path = cwd.join(".agents/rules/traz.md");
-                    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-                    if !existing.contains("traz_add") {
-                        let new_content = if existing.is_empty() {
-                            format!("{}\n", prompt)
-                        } else {
-                            format!("{}\n\n{}\n", existing, prompt)
-                        };
-                        if std::fs::write(&path, new_content).is_ok() {
-                            injected_count += 1;
+                    // Special case for Antigravity/Gemini which needs nested directory
+                    if std::fs::create_dir_all(".agents/rules").is_ok() {
+                        let path = cwd.join(".agents/rules/traz.md");
+                        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                        if !existing.contains("traz_add") {
+                            let new_content = if existing.is_empty() {
+                                format!("{}\n", prompt)
+                            } else {
+                                format!("{}\n\n{}\n", existing, prompt)
+                            };
+                            if safe_write(&path, &new_content, false).is_ok() {
+                                injected_count += 1;
+                            }
                         }
                     }
                 }
@@ -813,13 +812,8 @@ async fn run_command(
                     if cli_available {
                         let cmd_str = format!("{} {}", cli, args.join(" "));
                         println!("  {GREEN}✓{RESET} {BOLD}{} CLI detected!{RESET}", cli);
-                        print!("  Run `{CYAN}{cmd_str}{RESET}` automatically? [Y/n] ");
-                        use std::io::Write;
-                        std::io::stdout().flush().ok();
-                        let mut response = String::new();
-                        std::io::stdin().read_line(&mut response).ok();
-                        let trimmed = response.trim().to_lowercase();
-                        if trimmed.is_empty() || trimmed == "y" || trimmed == "yes" {
+                        if confirm_prompt(&format!("  Run `{CYAN}{cmd_str}{RESET}` automatically?"))
+                        {
                             match std::process::Command::new(cli).args(&args).status() {
                                 Ok(s) if s.success() => {
                                     println!(
@@ -873,7 +867,7 @@ async fn run_command(
                         } else {
                             format!("{}\n\n{}\n", existing, prompt)
                         };
-                        if std::fs::write(&path, new_content).is_ok() {
+                        if safe_write(&path, &new_content, false).is_ok() {
                             #[allow(non_snake_case, unused_variables)]
                             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) =
                                 display::get_colors();
@@ -913,19 +907,13 @@ async fn run_command(
                         let json_str =
                             serde_json::to_string_pretty(&cursor_config).unwrap_or_default();
 
-                        println!(
-                            "  Auto-configure Cursor by writing to {}? [Y/n] ",
+                        if confirm_prompt(&format!(
+                            "  Auto-configure Cursor by writing to {}?",
                             mcp_path.display()
-                        );
-                        use std::io::Write;
-                        std::io::stdout().flush().ok();
-                        let mut response = String::new();
-                        std::io::stdin().read_line(&mut response).ok();
-                        let trimmed = response.trim().to_lowercase();
-                        if trimmed.is_empty() || trimmed == "y" || trimmed == "yes" {
+                        )) {
                             if let Err(e) = std::fs::create_dir_all(&cursor_dir) {
                                 println!("  {MAGENTA}✗{RESET} Could not create ~/.cursor/: {}", e);
-                            } else if let Err(e) = std::fs::write(&mcp_path, &json_str) {
+                            } else if let Err(e) = safe_write(&mcp_path, &json_str, false) {
                                 println!(
                                     "  {MAGENTA}✗{RESET} Could not write {}: {}",
                                     mcp_path.display(),
@@ -1016,22 +1004,16 @@ async fn run_command(
                         let json_str =
                             serde_json::to_string_pretty(&opencode_config).unwrap_or_default();
 
-                        println!(
-                            "  Auto-configure OpenCode by writing to {}? [Y/n] ",
+                        if confirm_prompt(&format!(
+                            "  Auto-configure OpenCode by writing to {}?",
                             mcp_path.display()
-                        );
-                        use std::io::Write;
-                        std::io::stdout().flush().ok();
-                        let mut response = String::new();
-                        std::io::stdin().read_line(&mut response).ok();
-                        let trimmed = response.trim().to_lowercase();
-                        if trimmed.is_empty() || trimmed == "y" || trimmed == "yes" {
+                        )) {
                             if let Err(e) = std::fs::create_dir_all(&opencode_dir) {
                                 println!(
                                     "  {MAGENTA}✗{RESET} Could not create config directory: {}",
                                     e
                                 );
-                            } else if let Err(e) = std::fs::write(&mcp_path, &json_str) {
+                            } else if let Err(e) = safe_write(&mcp_path, &json_str, false) {
                                 println!(
                                     "  {MAGENTA}✗{RESET} Could not write {}: {}",
                                     mcp_path.display(),
@@ -1086,14 +1068,19 @@ async fn run_command(
 
             // 2. Check SQLite Connection and FTS5 Support
             println!("\n  {BOLD}2. Database Engine Checks:{RESET}");
+
+            let mut db_healthy = false;
+            let mut fts5_supported = false;
+
             match Db::open(&config.db_path) {
                 Ok(database) => {
+                    db_healthy = true;
                     println!("     - Connection:       {GREEN}✓ Connection Succeeded{RESET}");
 
                     // Run real FTS5 support check in-memory or on database connection
-                    let fts5_ok = database.check_fts5_support();
+                    fts5_supported = database.check_fts5_support();
 
-                    if fts5_ok {
+                    if fts5_supported {
                         println!("     - SQLite FTS5:      {GREEN}✓ Enabled & Compiled{RESET}");
                     } else {
                         println!(
@@ -1142,12 +1129,8 @@ async fn run_command(
 
             // Summary
             println!("\n  ──────────────────────────────────────────────────────────");
-            let fts5_supported = match Db::open(&config.db_path) {
-                Ok(database) => database.check_fts5_support(),
-                Err(_) => false,
-            };
 
-            if fts5_supported && (!embeddings_enabled || model_ok) {
+            if db_healthy && fts5_supported && (!embeddings_enabled || model_ok) {
                 println!(
                     "  {GREEN}🎉 Everything looks solid! traz is fully healthy on this machine.{RESET}"
                 );
@@ -1433,4 +1416,39 @@ fn parse_duration(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         "y" | "year" | "years" => Some(now - chrono::Duration::try_days(num * 365)?),
         _ => None,
     }
+}
+
+/// Safely write or append to a file, aborting if the target is a symlink.
+/// This mitigates symlink-overwrite attacks in cloned malicious repositories.
+fn safe_write(path: &std::path::Path, content: &str, append: bool) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(std::io::Error::other(
+            "Refusing to write to a symlink for security reasons",
+        ));
+    }
+
+    if append {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        write!(file, "{}", content)
+    } else {
+        std::fs::write(path, content)
+    }
+}
+
+/// Helper to prompt the user for a Yes/No confirmation interactively.
+fn confirm_prompt(prompt_msg: &str) -> bool {
+    use std::io::Write;
+    print!("{} [Y/n] ", prompt_msg);
+    std::io::stdout().flush().ok();
+    let mut response = String::new();
+    std::io::stdin().read_line(&mut response).ok();
+    let trimmed = response.trim().to_lowercase();
+    trimmed.is_empty() || trimmed == "y" || trimmed == "yes"
 }

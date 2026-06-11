@@ -37,14 +37,61 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-    let reader = io::BufReader::new(stdin.lock());
+    let mut reader = io::BufReader::new(stdin.lock());
 
-    for line in reader.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
+    loop {
+        let mut line_buf = Vec::new();
+        let mut current_len = 0;
+        let mut eof = false;
+
+        loop {
+            let available = reader.fill_buf()?;
+            if available.is_empty() {
+                eof = true;
+                break;
+            }
+
+            let (done, used) = match available.iter().position(|&b| b == b'\n') {
+                Some(i) => {
+                    line_buf.extend_from_slice(&available[..=i]);
+                    (true, i + 1)
+                }
+                None => {
+                    line_buf.extend_from_slice(available);
+                    (false, available.len())
+                }
+            };
+            reader.consume(used);
+            current_len += used;
+
+            if current_len > MAX_LINE_LEN {
+                break;
+            }
+            if done {
+                break;
+            }
         }
-        if line.len() > MAX_LINE_LEN {
+
+        if eof && line_buf.is_empty() {
+            break;
+        }
+
+        if current_len > MAX_LINE_LEN {
+            // Discard the rest of the malicious line until newline
+            loop {
+                let available = reader.fill_buf()?;
+                if available.is_empty() {
+                    break;
+                }
+                let (done, used) = match available.iter().position(|&b| b == b'\n') {
+                    Some(i) => (true, i + 1),
+                    None => (false, available.len()),
+                };
+                reader.consume(used);
+                if done {
+                    break;
+                }
+            }
             let err_resp = json!({
                 "jsonrpc": "2.0",
                 "id": null,
@@ -52,6 +99,11 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
             });
             writeln!(stdout, "{}", serde_json::to_string(&err_resp)?)?;
             stdout.flush()?;
+            continue;
+        }
+
+        let line = String::from_utf8_lossy(&line_buf);
+        if line.trim().is_empty() {
             continue;
         }
 

@@ -19,9 +19,27 @@ impl Db {
     pub fn open(db_path: &Path) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).context("Failed to create database directory")?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(metadata) = std::fs::metadata(parent) {
+                    let mut perms = metadata.permissions();
+                    perms.set_mode(0o700);
+                    let _ = std::fs::set_permissions(parent, perms);
+                }
+            }
         }
 
         let conn = Connection::open(db_path).context("Failed to open SQLite database")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(db_path) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o600);
+                let _ = std::fs::set_permissions(db_path, perms);
+            }
+        }
 
         // Tune SQLite for single-user, local-first workloads
         conn.execute_batch(

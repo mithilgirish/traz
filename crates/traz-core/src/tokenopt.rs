@@ -244,6 +244,12 @@ pub fn deduplicate_events(events: Vec<Event>, similarity_threshold: f64) -> Vec<
     let mut merged_count: Vec<usize> = Vec::new();
     let mut used = vec![false; events.len()];
 
+    // Pre-compute word sets to avoid O(N^2) string allocations
+    let parsed_titles: Vec<std::collections::HashSet<&str>> = events
+        .iter()
+        .map(|e| e.title.split_whitespace().collect())
+        .collect();
+
     for i in 0..events.len() {
         if used[i] {
             continue;
@@ -255,7 +261,7 @@ pub fn deduplicate_events(events: Vec<Event>, similarity_threshold: f64) -> Vec<
                 continue;
             }
 
-            let sim = jaccard_similarity(&events[i].title, &events[j].title);
+            let sim = jaccard_similarity_sets(&parsed_titles[i], &parsed_titles[j]);
             if sim >= similarity_threshold {
                 used[j] = true;
                 count += 1;
@@ -277,23 +283,31 @@ pub fn deduplicate_events(events: Vec<Event>, similarity_threshold: f64) -> Vec<
     result
 }
 
-/// Jaccard similarity on word sets of two strings.
-fn jaccard_similarity(a: &str, b: &str) -> f64 {
-    let set_a: std::collections::HashSet<&str> = a.split_whitespace().collect();
-    let set_b: std::collections::HashSet<&str> = b.split_whitespace().collect();
-
+/// Jaccard similarity on pre-computed word sets.
+fn jaccard_similarity_sets(
+    set_a: &std::collections::HashSet<&str>,
+    set_b: &std::collections::HashSet<&str>,
+) -> f64 {
     if set_a.is_empty() && set_b.is_empty() {
         return 1.0;
     }
 
-    let intersection = set_a.intersection(&set_b).count();
-    let union = set_a.union(&set_b).count();
+    let intersection = set_a.intersection(set_b).count();
+    let union = set_a.union(set_b).count();
 
     if union == 0 {
         0.0
     } else {
         intersection as f64 / union as f64
     }
+}
+
+/// Helper for tests to keep existing test API intact.
+#[cfg(test)]
+fn jaccard_similarity(a: &str, b: &str) -> f64 {
+    let set_a: std::collections::HashSet<&str> = a.split_whitespace().collect();
+    let set_b: std::collections::HashSet<&str> = b.split_whitespace().collect();
+    jaccard_similarity_sets(&set_a, &set_b)
 }
 
 // ─── Detail Level (Progressive) ─────────────────────────────────────

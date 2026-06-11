@@ -33,3 +33,4 @@ test_project/
 # AI agent local config (auto-generated, contains user-specific paths)
 .agents/
 .gemini/
+Warp.md

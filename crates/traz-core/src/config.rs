@@ -95,16 +95,22 @@ impl TrazConfig {
 
     /// Persist the current configuration to config.toml in the database directory.
     pub fn save(&self) -> anyhow::Result<()> {
-        let config_path = self
-            .db_path
-            .parent()
-            .unwrap_or(Path::new("."))
-            .join("config.toml");
-        if let Some(parent) = config_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        let parent = self.db_path.parent().unwrap_or(Path::new("."));
+        let config_path = parent.join("config.toml");
+        std::fs::create_dir_all(parent)?;
+
         let content = toml::to_string_pretty(self)?;
-        std::fs::write(&config_path, content)?;
+        let temp_path = parent.join(format!(".config.toml.tmp.{}", std::process::id()));
+
+        std::fs::write(&temp_path, content)?;
+
+        // Ensure data is synced to physical storage before rename
+        if let Ok(file) = std::fs::File::open(&temp_path) {
+            let _ = file.sync_all();
+        }
+
+        // Atomic rename
+        std::fs::rename(&temp_path, &config_path)?;
         Ok(())
     }
 

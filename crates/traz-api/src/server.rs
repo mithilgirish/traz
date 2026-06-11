@@ -45,6 +45,23 @@ struct FilterQuery {
     until: Option<DateTime<Utc>>,
 }
 
+async fn validate_host(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, axum::http::StatusCode> {
+    if let Some(host) = req.headers().get(axum::http::header::HOST) {
+        let host_str = host.to_str().unwrap_or_default();
+        if host_str == "localhost"
+            || host_str.starts_with("127.0.0.1")
+            || host_str.starts_with("localhost:")
+            || host_str.starts_with("[::1]")
+        {
+            return Ok(next.run(req).await);
+        }
+    }
+    Err(axum::http::StatusCode::BAD_REQUEST)
+}
+
 /// Build the traz REST API router.
 pub fn create_router(db: Arc<Db>) -> Router {
     let state = AppState { db };
@@ -70,6 +87,7 @@ pub fn create_router(db: Arc<Db>) -> Router {
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+        .route_layer(axum::middleware::from_fn(validate_host))
         .with_state(state)
 }
 
