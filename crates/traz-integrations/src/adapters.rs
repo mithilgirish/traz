@@ -1,5 +1,13 @@
 use anyhow::Result;
 
+/// Provides a highly token-optimized system prompt rule for AI agents.
+/// Instructs the agent to only sync when meaningful work is done, keeping summaries short.
+pub fn active_sync_prompt() -> &'static str {
+    "CRITICAL CONTEXT SYNC:\n\
+    1. READ: At the start of a session or when asked about project context/history, you MUST call `traz_recent` to retrieve the latest state.\n\
+    2. WRITE: After completing a major feature, fixing a bug, or receiving critical user context, you MUST call `traz_add` exactly ONCE. Keep the summary concise (1-3 sentences) to optimize tokens. Do not log conversational chitchat."
+}
+
 /// Generate MCP configuration JSON for Claude Code.
 ///
 /// Users can add this to their `claude_desktop_config.json` to enable
@@ -31,28 +39,54 @@ pub fn cursor_mcp_config() -> serde_json::Value {
     })
 }
 
+/// Generate MCP configuration JSON for OpenCode.
+///
+/// Users can add this to their `opencode.jsonc` configuration file.
+pub fn opencode_mcp_config() -> serde_json::Value {
+    serde_json::json!({
+        "mcp": {
+            "traz": {
+                "type": "local",
+                "command": ["traz", "mcp"],
+                "enabled": true
+            }
+        }
+    })
+}
+
 /// Print setup instructions for a specific tool.
 pub fn setup_instructions(tool: &str) -> Result<String> {
     match tool {
+        "opencode" => Ok(format!(
+            "OpenCode MCP Integration\n\
+             ────────────────────────\n\
+             Add this to your global OpenCode configuration file (~/.config/opencode/opencode.jsonc)\n\
+             or to your project-scoped config file (opencode.jsonc) in the project root:\n\n\
+             {}\n\n\
+             Note: OpenCode uses the standard `AGENTS.md` file for project-specific instructions.\n\
+             Traz will automatically sync your context via `AGENTS.md` active rules.",
+            serde_json::to_string_pretty(&opencode_mcp_config())?
+        )),
+
         "claude" | "claude-code" => Ok(format!(
             "Claude Code MCP Integration\n\
-             ───────────────────────────\n\
-             Add this to your claude_desktop_config.json:\n\n\
-             {}\n\n\
-             # Set TRAZ_EXPERIMENTAL=1 to unlock timeline, delete, compress tools\n\n\
-             Config location:\n\
-             • macOS: ~/Library/Application Support/Claude/claude_desktop_config.json\n\
-             • Linux: ~/.config/Claude/claude_desktop_config.json\n\
-             • Windows: %APPDATA%/Claude/claude_desktop_config.json",
+              ───────────────────────────\n\
+              Add this to your claude_desktop_config.json:\n\n\
+              {}\n\n\
+              # Set TRAZ_EXPERIMENTAL=1 to unlock timeline, delete, compress tools\n\n\
+              Config location:\n\
+              • macOS: ~/Library/Application Support/Claude/claude_desktop_config.json\n\
+              • Linux: ~/.config/Claude/claude_desktop_config.json\n\
+              • Windows: %APPDATA%/Claude/claude_desktop_config.json",
             serde_json::to_string_pretty(&claude_mcp_config())?
         )),
 
         "cursor" => Ok(format!(
             "Cursor MCP Integration\n\
-             ──────────────────────\n\
-             Add this to your Cursor MCP settings:\n\n\
-             {}\n\n\
-             Go to: Cursor Settings → MCP → Add Server",
+              ──────────────────────\n\
+              Add this to your Cursor MCP settings:\n\n\
+              {}\n\n\
+              Go to: Cursor Settings → MCP → Add Server",
             serde_json::to_string_pretty(&cursor_mcp_config())?
         )),
 
@@ -191,5 +225,31 @@ pub fn setup_instructions(tool: &str) -> Result<String> {
                traz serve\n\n\
              Then point your tool at http://localhost:4000/events"
             .to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_opencode_mcp_config() {
+        let config = opencode_mcp_config();
+        assert!(config.get("mcp").is_some());
+        assert!(config["mcp"].get("traz").is_some());
+        assert_eq!(config["mcp"]["traz"]["type"], "local");
+        assert_eq!(
+            config["mcp"]["traz"]["command"],
+            serde_json::json!(["traz", "mcp"])
+        );
+        assert_eq!(config["mcp"]["traz"]["enabled"], true);
+    }
+
+    #[test]
+    fn test_setup_instructions_opencode() {
+        let instructions = setup_instructions("opencode").unwrap();
+        assert!(instructions.contains("OpenCode MCP Integration"));
+        assert!(instructions.contains("opencode.jsonc"));
+        assert!(instructions.contains("AGENTS.md"));
     }
 }

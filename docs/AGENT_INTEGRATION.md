@@ -147,6 +147,38 @@ Or add manually to `~/.cursor/mcp.json`:
 
 ---
 
+## OpenCode
+
+### Step 1: Install
+```bash
+traz setup opencode
+# traz offers to write ~/.config/opencode/opencode.jsonc automatically
+```
+
+Or add manually to your global configuration file (`~/.config/opencode/opencode.jsonc`) or local project-scoped config file (`opencode.jsonc`):
+```json
+{
+  "mcp": {
+    "traz": {
+      "type": "local",
+      "command": ["traz", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+### Step 2: Add to `AGENTS.md` (Project-specific instructions)
+```markdown
+## Engineering Memory (traz)
+- Session start: call traz_recent(format="dense", limit=5)
+- During work: call traz_add for bug fixes, refactors, decisions
+- Context bloat: call traz_checkpoint, then ask user to open new chat
+- Daily standup: call traz_recap(hours=24, format="dense")
+```
+
+---
+
 ## Token Efficiency Cheat Sheet
 
 | Operation | Default (markdown) | Dense format | Savings |
@@ -156,6 +188,23 @@ Or add manually to `~/.cursor/mcp.json`:
 | `traz_context` (10 events) | ~500 tokens | ~160 tokens | **68%** |
 | `traz_recap` (24h, 20 events) | ~800 tokens | ~250 tokens | **69%** |
 | Per-session savings (loop agent, 10 turns) | ~4,000 tokens | ~1,200 tokens | **70%** |
+
+Every LLM call costs tokens, and context window limits restrict how much history you can feed into the agent. traz is designed to be highly token-efficient.
+
+Use this cheat sheet to configure your system prompts and agent rules:
+
+1. **Always use `dense` format for background fetches**:
+   - Standard fetch: `traz_recent()` -> ~4,000 tokens
+   - Token-optimized: `traz_recent(format="dense")` -> ~950 tokens
+   - Saves **75%** of context window capacity.
+
+2. **Differentiate Session Start vs. Interactive Turns**:
+   - **Session Start**: Fetch the last 5-10 events in `dense` format to catch the agent up on where you left off.
+   - **Interactive Turn**: Do NOT pull history on every turn. Let the agent work. If the agent needs historical context for the current task, it should call `traz_context(query="current task description")` to perform a semantic vector search and pull only the most relevant 2-3 events.
+
+3. **Checkpoints**:
+   - Once a task is complete, run `traz_checkpoint` to freeze the memory state.
+   - You can then safely clear your agent's chat history/start a new thread to clean up context window usage. The new agent session will start fresh, query `traz_recent`, see the checkpoint, and immediately know the state of the repository.
 
 ---
 
@@ -200,7 +249,8 @@ This is **zero-cost context reset** — no copy-pasting, no re-explaining.
 |---|---|---|---|
 | Claude Code | ✅ `traz setup claude` | ✅ Auto-injected | Optional (CLAUDE.md) |
 | Antigravity (agy) | ✅ `traz setup agy` | ✅ Auto-injected | Optional |
-| OpenAI Codex CLI | ✅ `traz setup codex` | ✅ Auto-injected | Optional |
+| OpenAI Codex CLI | ✅ `traz setup codex` | ✅ Auto-injected | Optional (AGENTS.md) |
+| OpenCode | ✅ `traz setup opencode` | ❌ Not supported | Optional (AGENTS.md) |
 | Cursor | ✅ `traz setup cursor` | ❌ Not supported | Recommended (.cursorrules) |
 | Gemini CLI | Manual | ❌ Not supported | Optional |
 | Aider | Manual | ❌ | Optional |

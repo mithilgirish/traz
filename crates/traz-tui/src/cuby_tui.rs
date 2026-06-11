@@ -393,7 +393,7 @@ fn render_cuby_ui(f: &mut ratatui::Frame, app: &mut CubyAppState) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(16), Constraint::Min(20)])
-        .split(f.size());
+        .split(f.area());
 
     let cuby_color = match app.mood.as_str() {
         "happy" | "curious" | "excited" | "starstruck" => Color::Cyan,

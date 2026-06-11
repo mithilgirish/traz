@@ -38,6 +38,9 @@ traz setup claude
 # For Cursor
 traz setup cursor
 
+# For OpenCode
+traz setup opencode
+
 # For Gemini CLI
 traz setup gemini
 

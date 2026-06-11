@@ -28,3 +28,8 @@ Thumbs.db
 .dist/
 test_project/
 .traz/
+
+
+# AI agent local config (auto-generated, contains user-specific paths)
+.agents/
+.gemini/

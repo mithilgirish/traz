@@ -177,7 +177,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             Constraint::Min(0),    // Main Workspace
             Constraint::Length(1), // Vim-style Powerline Statusline
         ])
-        .split(f.size());
+        .split(f.area());
 
     // 1. Draw Sleek Header Title Bar (Dual-Tone Powerline wedge)
     let total_count = app.db.count_events().unwrap_or(app.all_events.len() as i64);
@@ -407,7 +407,7 @@ fn draw_list_view(f: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
 
     let table = Table::new(rows, widths)
         .block(Block::default().borders(Borders::NONE))
-        .highlight_style(Style::default())
+        .row_highlight_style(Style::default())
         .highlight_symbol("");
 
     let mut state = TableState::default();

@@ -219,6 +219,7 @@ Run the setup command corresponding to your primary tool. The wizard will automa
 ```bash
 traz setup claude   # Configures Claude Code
 traz setup cursor   # Modifies ~/.cursor/mcp.json
+traz setup opencode # Configures OpenCode
 traz setup codex    # Configures OpenAI Codex CLI
 traz setup gemini   # Configures Gemini CLI
 traz setup agy      # Configures Antigravity CLI

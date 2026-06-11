@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "traz": {
-      "command": "/home/mithil/.cargo/bin/traz",
-      "args": ["mcp"],
-      "env": {}
-    }
-  }
-}

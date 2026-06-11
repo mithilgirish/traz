@@ -283,7 +283,7 @@ pub enum Commands {
 
     /// Show integration setup instructions for a specific tool
     Setup {
-        /// Tool name: claude, cursor, gemini, git
+        /// Tool name: claude, cursor, gemini, opencode, git
         tool: String,
     },
 

@@ -52,6 +52,20 @@ In Cursor Settings > Features > MCP Servers:
 3. Type: `command`
 4. Command: `traz mcp`
 
+### OpenCode
+Add this to your global configuration file (`~/.config/opencode/opencode.jsonc`) or local project config file (`opencode.jsonc`):
+```json
+{
+  "mcp": {
+    "traz": {
+      "type": "local",
+      "command": ["traz", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
 ### Aider
 Start Aider with the MCP server attached:
 ```bash

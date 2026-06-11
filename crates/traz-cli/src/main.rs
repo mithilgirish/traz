@@ -97,8 +97,53 @@ async fn run_command(
             } else {
                 println!("  {GREEN}✓{RESET} {BOLD}Traz initialized{RESET}");
                 println!("    {DIM}DB:{RESET}   {}", config.db_path.display());
+
+                // Auto-inject rules into common files during init for easy use
+                let prompt = traz_integrations::adapters::active_sync_prompt();
+                let common_files = vec![".cursorrules", "CLAUDE.md", "AGENTS.md"];
+
+                let mut injected_count = 0;
+                let cwd = std::env::current_dir().unwrap_or_default();
+
+                for filename in common_files {
+                    let path = cwd.join(filename);
+                    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                    if !existing.contains("traz_add") {
+                        let new_content = if existing.is_empty() {
+                            format!("{}\n", prompt)
+                        } else {
+                            format!("{}\n\n{}\n", existing, prompt)
+                        };
+                        if std::fs::write(&path, new_content).is_ok() {
+                            injected_count += 1;
+                        }
+                    }
+                }
+
+                // Special case for Antigravity/Gemini which needs nested directory
+                if std::fs::create_dir_all(".agents/rules").is_ok() {
+                    let path = cwd.join(".agents/rules/traz.md");
+                    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                    if !existing.contains("traz_add") {
+                        let new_content = if existing.is_empty() {
+                            format!("{}\n", prompt)
+                        } else {
+                            format!("{}\n\n{}\n", existing, prompt)
+                        };
+                        if std::fs::write(&path, new_content).is_ok() {
+                            injected_count += 1;
+                        }
+                    }
+                }
+
+                if injected_count > 0 {
+                    println!(
+                        "  {GREEN}✓{RESET} {BOLD}Auto-configured Active Sync rules for Cursor, Claude, OpenCode, and agy!{RESET}"
+                    );
+                }
+
                 println!(
-                    "    {BOLD}Next:{RESET} run {CYAN}`traz setup claude`{RESET} to connect Claude Code"
+                    "    {BOLD}Next:{RESET} run {CYAN}`traz setup claude`{RESET} (or cursor/opencode/agy) to connect the MCP server"
                 );
                 println!("          run {CYAN}`traz init --hook`{RESET} to install git hooks");
                 println!("          run {CYAN}`traz serve`{RESET} to start the REST API on :4000");
@@ -666,7 +711,8 @@ async fn run_command(
             println!("  {BOLD}Services:{RESET}");
             if api_running {
                 println!(
-                    "    {GREEN}✓{RESET} {BOLD}REST API{RESET}      {GREEN}Running{RESET} on port 4000"
+                    "    {GREEN}✓{RESET} {BOLD}REST API{RESET}      {GREEN}Running{RESET} on port {}",
+                    api_port
                 );
             } else {
                 println!(
@@ -676,7 +722,7 @@ async fn run_command(
 
             // 6. MCP server instructions
             println!(
-                "    {CYAN}ℹ{RESET} {BOLD}MCP Server{RESET}    Start with {CYAN}`traz mcp`{RESET} to connect to Cursor/Claude"
+                "    {CYAN}ℹ{RESET} {BOLD}MCP Server{RESET}    Start with {CYAN}`traz mcp`{RESET} to connect to Cursor/Claude/OpenCode"
             );
             println!();
         }
@@ -791,6 +837,54 @@ async fn run_command(
                     }
                 }
 
+                // Inject token-optimized active sync rule into local project
+                let prompt = traz_integrations::adapters::active_sync_prompt();
+                let rule_file = match tool_lower.as_str() {
+                    "cursor" => Some(".cursorrules"),
+                    "claude" | "claude-code" => Some("CLAUDE.md"),
+                    "agy" | "antigravity" | "gemini" | "gemini-cli" => {
+                        if let Err(e) = std::fs::create_dir_all(".agents/rules") {
+                            eprintln!("Failed to create .agents/rules directory: {}", e);
+                        }
+                        Some(".agents/rules/traz.md")
+                    }
+                    "aider" => Some("CONVENTIONS.md"),
+                    "copilot" | "github-copilot" | "vscode" => {
+                        // GitHub Copilot uses this standard path for project-level instructions
+                        if let Err(e) = std::fs::create_dir_all(".github") {
+                            eprintln!("Failed to create .github directory: {}", e);
+                        }
+                        Some(".github/copilot-instructions.md")
+                    }
+                    "codex" | "openai-codex" | "opencode" => Some("AGENTS.md"),
+                    "warp" => Some("Warp.md"),
+                    // Fallback for any other generic AI tool
+                    _ => Some("AI_INSTRUCTIONS.md"),
+                };
+
+                if let Some(filename) = rule_file
+                    && let Ok(cwd) = std::env::current_dir()
+                {
+                    let path = cwd.join(filename);
+                    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                    if !existing.contains("traz_add") {
+                        let new_content = if existing.is_empty() {
+                            format!("{}\n", prompt)
+                        } else {
+                            format!("{}\n\n{}\n", existing, prompt)
+                        };
+                        if std::fs::write(&path, new_content).is_ok() {
+                            #[allow(non_snake_case, unused_variables)]
+                            let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) =
+                                display::get_colors();
+                            println!(
+                                "  {GREEN}✓{RESET} {BOLD}Active Sync Rule injected into {}!{RESET} (Token optimized)",
+                                filename
+                            );
+                        }
+                    }
+                }
+
                 // Special: Cursor doesn't have a CLI, write config file directly
                 if tool_lower == "cursor" {
                     #[allow(non_snake_case, unused_variables)]
@@ -847,6 +941,112 @@ async fn run_command(
                     }
                 }
 
+                // Special: OpenCode doesn't have a CLI, write config file directly
+                if tool_lower == "opencode" {
+                    #[allow(non_snake_case, unused_variables)]
+                    let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) =
+                        display::get_colors();
+                    if let Some(home) = dirs::home_dir() {
+                        let opencode_dir = if cfg!(windows) {
+                            std::env::var("APPDATA")
+                                .map(std::path::PathBuf::from)
+                                .unwrap_or_else(|_| home.join(".config").join("opencode"))
+                        } else {
+                            home.join(".config").join("opencode")
+                        };
+                        let mcp_path = opencode_dir.join("opencode.jsonc");
+
+                        // Helper: strip single-line // comments from JSONC before parsing
+                        // to avoid silently destroying user config that contains comments
+                        let strip_jsonc_comments = |s: &str| -> String {
+                            s.lines()
+                                .map(|line| {
+                                    // Simple comment stripping: remove // comments outside strings
+                                    // This handles the common case; full JSONC parsing would require a dedicated crate
+                                    let trimmed = line.trim_start();
+                                    if trimmed.starts_with("//") { "" } else { line }
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        };
+
+                        // Read existing config or create new
+                        let existing: serde_json::Value = if mcp_path.exists() {
+                            match std::fs::read_to_string(&mcp_path) {
+                                Ok(contents) => {
+                                    let stripped = strip_jsonc_comments(&contents);
+                                    match serde_json::from_str(&stripped) {
+                                        Ok(val) => val,
+                                        Err(e) => {
+                                            println!(
+                                                "  {YELLOW}⚠{RESET} Could not parse {}: {}. Will only add traz MCP config.",
+                                                mcp_path.display(),
+                                                e
+                                            );
+                                            serde_json::json!({"mcp": {}})
+                                        }
+                                    }
+                                }
+                                Err(_) => serde_json::json!({"mcp": {}}),
+                            }
+                        } else {
+                            let json_fallback = opencode_dir.join("opencode.json");
+                            if json_fallback.exists() {
+                                std::fs::read_to_string(&json_fallback)
+                                    .ok()
+                                    .and_then(|s| serde_json::from_str(&s).ok())
+                                    .unwrap_or_else(|| serde_json::json!({"mcp": {}}))
+                            } else {
+                                serde_json::json!({"mcp": {}})
+                            }
+                        };
+
+                        let mut opencode_config = existing;
+                        if !opencode_config.is_object() {
+                            opencode_config = serde_json::json!({"mcp": {}});
+                        } else if opencode_config.get("mcp").is_none() {
+                            opencode_config["mcp"] = serde_json::json!({});
+                        }
+                        opencode_config["mcp"]["traz"] = serde_json::json!({
+                            "type": "local",
+                            "command": ["traz", "mcp"],
+                            "enabled": true
+                        });
+
+                        let json_str =
+                            serde_json::to_string_pretty(&opencode_config).unwrap_or_default();
+
+                        println!(
+                            "  Auto-configure OpenCode by writing to {}? [Y/n] ",
+                            mcp_path.display()
+                        );
+                        use std::io::Write;
+                        std::io::stdout().flush().ok();
+                        let mut response = String::new();
+                        std::io::stdin().read_line(&mut response).ok();
+                        let trimmed = response.trim().to_lowercase();
+                        if trimmed.is_empty() || trimmed == "y" || trimmed == "yes" {
+                            if let Err(e) = std::fs::create_dir_all(&opencode_dir) {
+                                println!(
+                                    "  {MAGENTA}✗{RESET} Could not create config directory: {}",
+                                    e
+                                );
+                            } else if let Err(e) = std::fs::write(&mcp_path, &json_str) {
+                                println!(
+                                    "  {MAGENTA}✗{RESET} Could not write {}: {}",
+                                    mcp_path.display(),
+                                    e
+                                );
+                            } else {
+                                println!(
+                                    "  {GREEN}✓{RESET} {BOLD}traz added to OpenCode!{RESET} Restart OpenCode to activate."
+                                );
+                            }
+                        }
+                        println!();
+                    }
+                }
+
                 if (tool_lower == "claude"
                     || tool_lower == "claude-code"
                     || tool_lower == "cursor"
@@ -854,7 +1054,8 @@ async fn run_command(
                     || tool_lower == "agy"
                     || tool_lower == "antigravity"
                     || tool_lower == "codex"
-                    || tool_lower == "openai-codex")
+                    || tool_lower == "openai-codex"
+                    || tool_lower == "opencode")
                     && !traz_embeddings::is_embedding_model_downloaded()
                 {
                     println!(
@@ -1012,7 +1213,7 @@ async fn run_interactive() -> Result<()> {
         match selection {
             0 => {
                 let tool: String = Input::with_theme(&ColorfulTheme::default())
-                    .with_prompt("Which tool? (claude, cursor, gemini, aider, warp)")
+                    .with_prompt("Which tool? (claude, cursor, gemini, opencode, aider, warp)")
                     .interact_text()?;
                 run_command(
                     Commands::Setup {
