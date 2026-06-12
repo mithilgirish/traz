@@ -34,3 +34,8 @@ test_project/
 .agents/
 .gemini/
 Warp.md
+
+# Documentation Site
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/

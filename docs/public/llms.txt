@@ -1,0 +1,26 @@
+# traz
+
+traz is a local-first developer memory layer that gives AI coding tools a shared brain. It establishes a highly searchable, persistent timeline stored locally and exposed via the Model Context Protocol (MCP), ensuring that subsequent AI sessions inherit the context of previous decisions.
+
+## Key Features
+- **Shared AI Memory**: Stops context loss between Claude Code, Cursor, and Aider.
+- **Local-First SQLite**: Built in pure Rust. Zero cloud dependencies, zero latency, absolute privacy.
+- **Native MCP Server**: Hook into your workflow with one command, delivering dense, compressed context.
+- **Semantic Vector Search**: Hybrid search powered by local ONNX-accelerated MiniLM embeddings and FTS5.
+- **Token Compressed**: Dense Output Formatting compresses context payloads by up to 75%.
+- **Cuby (Context Pet)**: A virtual Tamagotchi pet built into the CLI that you can interact with and feed context.
+
+## Core Usage
+- **CLI Search**: `traz search "auth bug"`
+- **Start MCP Server**: `traz mcp start`
+- **Interactive TUI**: `traz tui`
+- **Manual Event Logging**: `traz add "commit message"`
+
+## Architecture
+`traz` consists of several highly optimized crates:
+- `traz-core`: Primary data models.
+- `traz-db`: SQLite wrapper and ONNX execution via `fastembed-rs`.
+- `traz-mcp`: Model Context Protocol implementation.
+- `traz-tui`: Terminal UI via `ratatui`.
+
+For more detailed technical documentation and API specifications, visit https://traz.mithilgirish.dev

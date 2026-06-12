@@ -101,3 +101,36 @@ traz tui
 - **`d`**: View the full source code `diff` (if the AI tool attached one).
 - **`s`**: Enter Semantic Search mode. Type a natural language query and hit enter to instantly filter the timeline.
 - **`r` / `u`**: (Experimental) Undo or Rewind workflows if the integrations support it.
+
+---
+
+## Meet Cuby! (The Context Pet)
+
+`traz` isn't just a database—it comes with a built-in virtual context pet named **Cuby**! Because context management shouldn't be boring, you can interact with Cuby directly from the terminal. Cuby will change moods based on your interactions and can even recall your development history.
+
+To interact with Cuby, use the `traz cuby` subcommand:
+
+### Checking Status
+```bash
+traz cuby status
+```
+*Checks Cuby's current mood and memory status. If you haven't fed Cuby context recently, he might be asleep or dizzy!*
+
+### Asking for Help
+```bash
+traz cuby ask "memory leak"
+```
+*Cuby will search his internal semantic memory bank for the query you provide and respond with the context.*
+
+### Feeding Context
+```bash
+traz cuby feed "Fixed login database bug"
+```
+*Manually feed Cuby a memory. He gets very happy when you feed him context, and it is permanently stored in the `traz` database!*
+
+### Fun Commands
+Take a break from coding and play with your pet:
+- **`traz cuby pet`**: Give Cuby a head pat.
+- **`traz cuby sing`**: Let Cuby sing you a developer song.
+- **`traz cuby dance`**: Watch Cuby perform a cute terminal dance!
+- **`traz cuby play`**: Open the interactive Tamagotchi pet game.
