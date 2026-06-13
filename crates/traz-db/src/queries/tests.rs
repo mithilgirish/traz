@@ -287,6 +287,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires downloading embedding model"]
     fn test_context_summary_rag() {
         let conn = Connection::open_in_memory().unwrap();
         let db = Db {
@@ -385,6 +386,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires downloading embedding model"]
     fn test_semantic_search() {
         let conn = Connection::open_in_memory().unwrap();
         let db = Db {

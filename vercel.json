@@ -1,0 +1,6 @@
+{
+  "buildCommand": "cd docs && npm run docs:build",
+  "installCommand": "cd docs && npm install",
+  "outputDirectory": "docs/.vitepress/dist",
+  "framework": "vitepress"
+}
