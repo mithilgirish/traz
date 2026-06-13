@@ -52,7 +52,7 @@ This prints the exact config snippet and commands to connect `traz` as an MCP se
 
 ---
 
-## Step 4: That's it! 🎉
+## Step 4: You're Ready
 
 Now every time your AI tool starts a new session, it will automatically:
 1. Call `traz_recent` to retrieve your latest events.

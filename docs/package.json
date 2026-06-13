@@ -9,5 +9,9 @@
   },
   "devDependencies": {
     "vitepress": "^1.0.0-rc.31"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "vite": "^8.0.16"
   }
 }
