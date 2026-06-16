@@ -85,7 +85,7 @@ Select your preferred installation method:
 
 ### 1. Via NPM (Cross-Platform)
 ```bash
-npm install -g traz
+npm install -g @traz-dev/traz
 ```
 
 ### 2. Via Homebrew (macOS & Linux)

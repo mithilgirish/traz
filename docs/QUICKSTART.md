@@ -12,7 +12,7 @@ Choose your preferred installation method:
 
 ```bash [NPM]
 # Install globally via NPM
-npm install -g traz
+npm install -g @traz-dev/traz
 ```
 
 ```bash [Homebrew]
