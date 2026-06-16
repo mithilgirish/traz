@@ -1,6 +1,21 @@
 ---
 layout: home
 
+hero:
+  name: "traz"
+  text: "Trace. Context. Continuity."
+  tagline: A local-first engineering memory layer and MCP server that gives your AI coding tools a shared, persistent brain.
+  image:
+    src: /logo.png
+    alt: traz logo
+  actions:
+    - theme: brand
+      text: Get Started →
+      link: /QUICKSTART
+    - theme: alt
+      text: View on GitHub
+      link: https://github.com/mithilgirish/traz
+
 features:
   - title: Shared AI Memory
     details: Stop losing context between Claude Code, Cursor, and Aider. Traz acts as a persistent memory plane they can all read and write to natively.

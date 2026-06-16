@@ -12,6 +12,7 @@
   
   <img src="https://img.shields.io/badge/MCP-compatible-green" alt="MCP compatible" />
   <img src="https://img.shields.io/badge/SQLite-Local_First-purple" alt="SQLite" />
+  <a href="https://traz.mithilgirish.dev"><img src="https://img.shields.io/badge/docs-traz.mithilgirish.dev-6366f1" alt="Documentation" /></a>
 </p>
 
 ---
@@ -80,18 +81,37 @@ For an in-depth review of the underlying schema, migration logic, and RRF mathem
 
 ## Installation Guide
 
-### Pre-requisites
-- Rust toolchain (1.75.0 or higher)
-- Cargo package manager
+Select your preferred installation method:
 
-### Via Cargo
-The recommended installation method for most users.
+### 1. Via NPM (Cross-Platform)
 ```bash
-cargo install traz
+npm install -g traz
 ```
 
-### Build from Source
-For contributors or users requiring specific branch deployments.
+### 2. Via Homebrew (macOS & Linux)
+```bash
+brew tap mithilgirish/traz
+brew install traz
+```
+
+### 3. Standalone Installers (No dependencies required)
+* **macOS & Linux (Shell):**
+  ```bash
+  curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mithilgirish/traz/releases/latest/download/traz-installer.sh | sh
+  ```
+* **Windows (PowerShell):**
+  ```powershell
+  irm https://github.com/mithilgirish/traz/releases/latest/download/traz-installer.ps1 | iex
+  ```
+
+### 4. Via Cargo (Build from source)
+Requires the Rust toolchain (v1.75.0 or higher):
+```bash
+cargo install --git https://github.com/mithilgirish/traz.git traz
+```
+
+### Build from Source manually
+For contributors or users requiring specific branch deployments:
 ```bash
 git clone https://github.com/mithilgirish/traz.git
 cd traz

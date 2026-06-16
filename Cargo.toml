@@ -17,6 +17,7 @@ edition = "2024"
 authors = ["Mithil Girish"]
 license = "MIT"
 repository = "https://github.com/mithilgirish/traz"
+homepage = "https://traz.mithilgirish.dev"
 description = "A local-first engineering memory layer and MCP server for AI coding tools"
 keywords = ["mcp", "ai", "claude", "llm", "context"]
 categories = ["development-tools", "command-line-utilities"]
@@ -46,12 +47,19 @@ traz-api = { path = "crates/traz-api" }
 traz-mcp = { path = "crates/traz-mcp" }
 traz-integrations = { path = "crates/traz-integrations" }
 traz-embeddings = { path = "crates/traz-embeddings" }
+traz-tui = { path = "crates/traz-tui" }
+dialoguer = "0.12.0"
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
 
 [patch.crates-io]
 hf-hub = { path = "crates/hf-hub" }

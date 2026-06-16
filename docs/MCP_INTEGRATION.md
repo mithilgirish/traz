@@ -20,6 +20,8 @@ Once connected, your AI agent has access to the following capabilities:
 - **`traz_context`**: Generate a structured, token-optimized markdown summary of the current project state. Includes dense RAG formatting to minimize context consumption.
 - **`traz_stats`**: View analytics on which tools are contributing the most events.
 - **`traz_checkpoint`**: Snapshot the current conversational state. Used by AI agents to securely save their progress when the context window becomes too bloated, enabling a safe "fresh chat" reset.
+- **`traz_show`**: Retrieve the full detail of a specific event by its ID, including the complete diff and metadata.
+- **`traz_diff`**: Compare two events or time ranges to understand what changed between two points in your engineering timeline.
 
 ## Dealing With Context Bloat
 

@@ -35,7 +35,7 @@ Cuby represents the underlying context engine of `traz`—a highly optimized, ti
 - **`traz-api`**: An Axum-based REST API for standard HTTP integrations.
 - **`traz-mcp`**: The Model Context Protocol implementation, bridging `traz` to modern AI editors via standard I/O streams.
 - **`traz-tui`**: A `ratatui`-based interactive terminal UI.
-- **`traz-cli`**: The `clap` binary that acts as the entry point and ties everything together.
+- **`traz`**: The `clap` binary (crate: `traz`) that acts as the entry point and ties everything together.
 
 ## Usage Modalities
 
@@ -43,20 +43,20 @@ Cuby represents the underlying context engine of `traz`—a highly optimized, ti
 
 ### 1. The Command Line Interface (CLI)
 For quick, scriptable actions and CI/CD pipelines, the CLI provides raw access to the database:
-- **`traz add "commit message"`**: Inserts a new memory event manually.
+- **`traz log "commit message"`**: Inserts a new memory event manually.
 - **`traz search "auth bug"`**: Executes a hybrid semantic search directly in your terminal.
-- **`traz log`**: Dumps the chronological timeline.
+- **`traz recent`**: Dumps the chronological timeline.
 
 The CLI is perfect for Git hooks. By adding `traz add` to your `post-commit` hook, Cuby will automatically index every commit you make in the background!
 
 ### 2. The Terminal User Interface (TUI)
 For deep dives into your history, `traz` features a beautifully crafted, keyboard-driven TUI built with `ratatui`.
-- Launch it via **`traz ui`**.
+- Launch it via **`traz tui`**.
 - It features an interactive timeline, Vim-style keybindings (j/k to navigate), and a detailed split-pane view showing exact diffs and context for each event.
 - It is the best way for a human to visually explore what the AI agents have been tracking.
 
 ### 3. The Model Context Protocol (MCP) Server
-This is the heart of `traz` for AI agents. By running `traz mcp start`, `traz` runs a persistent daemon communicating via standard I/O.
+This is the heart of `traz` for AI agents. By running `traz mcp`, `traz` runs a persistent daemon communicating via standard I/O.
 - AI Agents (like Cursor) query the MCP server autonomously to recall past refactors or architectural decisions without prompting you.
 
 ## Storage Layer

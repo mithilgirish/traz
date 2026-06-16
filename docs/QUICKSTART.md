@@ -6,11 +6,37 @@ This guide gets you from zero to a working AI memory layer in under a minute.
 
 ## Step 1: Install
 
-```bash
-cargo install traz
+Choose your preferred installation method:
+
+::: code-group
+
+```bash [NPM]
+# Install globally via NPM
+npm install -g traz
 ```
 
-> **First time with Rust?** Install it from [rustup.rs](https://rustup.rs) — it takes about 2 minutes.
+```bash [Homebrew]
+# Tap the repository and install
+brew tap mithilgirish/traz
+brew install traz
+```
+
+```bash [Shell (macOS & Linux)]
+# Install via standalone shell script
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mithilgirish/traz/releases/latest/download/traz-installer.sh | sh
+```
+
+```powershell [PowerShell (Windows)]
+# Install via standalone PowerShell script
+irm https://github.com/mithilgirish/traz/releases/latest/download/traz-installer.ps1 | iex
+```
+
+```bash [Cargo]
+# Install from source via Cargo (requires Rust toolchain)
+cargo install --git https://github.com/mithilgirish/traz.git traz
+```
+
+:::
 
 ---
 
@@ -46,6 +72,9 @@ traz setup gemini
 
 # For Antigravity (agy)
 traz setup agy
+
+# For OpenAI Codex CLI
+traz setup codex
 ```
 
 This prints the exact config snippet and commands to connect `traz` as an MCP server.

@@ -9,8 +9,8 @@ description = "Interactive terminal timeline explorer dashboard for traz"
 [dependencies]
 ratatui = "0.30.1"
 crossterm = "0.28"
-traz-db = { path = "../traz-db" }
-traz-core = { path = "../traz-core" }
+traz-db = { workspace = true }
+traz-core = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }

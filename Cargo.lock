@@ -4020,23 +4020,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "traz-api"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "chrono",
- "serde",
- "serde_json",
- "tokio",
- "tower-http 0.5.2",
- "tracing",
- "traz-core",
- "traz-db",
-]
-
-[[package]]
-name = "traz-cli"
+name = "traz"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -4058,6 +4042,22 @@ dependencies = [
  "traz-mcp",
  "traz-tui",
  "uuid",
+]
+
+[[package]]
+name = "traz-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "traz-core",
+ "traz-db",
 ]
 
 [[package]]
