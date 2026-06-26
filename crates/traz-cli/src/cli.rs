@@ -287,6 +287,15 @@ pub enum Commands {
         tool: String,
     },
 
+    /// Handle agent lifecycle hooks for automated context injection and observation capture
+    Hook {
+        /// Agent platform name (e.g., claude, cursor, gemini)
+        platform: String,
+
+        /// Lifecycle hook event type (e.g., session-init, context, observation, file-edit, summarize)
+        event: String,
+    },
+
     /// Generate embeddings for events that are missing them (e.g., from before semantic search was enabled)
     BackfillEmbeddings,
 

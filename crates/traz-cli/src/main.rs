@@ -1234,6 +1234,26 @@ async fn run_command(
             traz_mcp::run_mcp_server(db).await?;
         }
 
+        Commands::Hook { platform, event } => {
+            use std::io::Read;
+            let mut stdin_data = String::new();
+            let _ = std::io::stdin().read_to_string(&mut stdin_data);
+
+            match traz_integrations::hooks::handle_hook(&db, &platform, &event, &stdin_data) {
+                Ok(response) => {
+                    println!("{}", response);
+                }
+                Err(e) => {
+                    eprintln!("Hook execution failed: {}", e);
+                    let err_output = serde_json::json!({
+                        "continue": true,
+                        "systemMessage": format!("traz hook execution failed: {}", e)
+                    });
+                    println!("{}", err_output);
+                }
+            }
+        }
+
         Commands::Cuby { subcommand, args } => {
             cuby::handle_cuby_command(&subcommand, &args, db).await?;
         }
