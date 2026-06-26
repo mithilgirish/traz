@@ -846,7 +846,7 @@ async fn run_command(
                         if let Err(e) = std::fs::create_dir_all(".agents/rules") {
                             eprintln!("Failed to create .agents/rules directory: {}", e);
                         }
-                        
+
                         // Install traz skill for Antigravity/Gemini
                         if std::fs::create_dir_all(".agents/skills/traz-memory").is_ok() {
                             let cwd = std::env::current_dir().unwrap_or_default();
@@ -1045,7 +1045,11 @@ async fn run_command(
                 }
 
                 // Special: Antigravity/Gemini workspace MCP configuration
-                if tool_lower == "agy" || tool_lower == "antigravity" || tool_lower == "gemini" || tool_lower == "gemini-cli" {
+                if tool_lower == "agy"
+                    || tool_lower == "antigravity"
+                    || tool_lower == "gemini"
+                    || tool_lower == "gemini-cli"
+                {
                     #[allow(non_snake_case, unused_variables)]
                     let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) =
                         display::get_colors();
@@ -1083,7 +1087,10 @@ async fn run_command(
                             mcp_path.display()
                         )) {
                             if let Err(e) = std::fs::create_dir_all(&agents_dir) {
-                                println!("  {MAGENTA}✗{RESET} Could not create .agents/ directory: {}", e);
+                                println!(
+                                    "  {MAGENTA}✗{RESET} Could not create .agents/ directory: {}",
+                                    e
+                                );
                             } else if let Err(e) = safe_write(&mcp_path, &json_str, false) {
                                 println!(
                                     "  {MAGENTA}✗{RESET} Could not write {}: {}",
@@ -1099,7 +1106,6 @@ async fn run_command(
                         println!();
                     }
                 }
-
 
                 if (tool_lower == "claude"
                     || tool_lower == "claude-code"
