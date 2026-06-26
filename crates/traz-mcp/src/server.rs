@@ -854,4 +854,213 @@ mod tests {
 
         cleanup_test_env(test_dir);
     }
+
+    #[test]
+    fn test_handle_tool_call_traz_context() {
+        let (db, test_dir) = setup_test_env("context");
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "MCP context testing".to_string(),
+            None,
+            None,
+            None,
+        );
+        db.insert_event(&event).unwrap();
+
+        let context_payload = json!({
+            "params": {
+                "name": "traz_context",
+                "arguments": {
+                    "limit": 5,
+                    "format": "markdown"
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &context_payload, false);
+        assert!(res.get("isError").is_none());
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("MCP context testing"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_traz_show_and_diff() {
+        let (db, test_dir) = setup_test_env("show_diff");
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Testing show and diff".to_string(),
+            None,
+            None,
+            None,
+        )
+        .with_diff("--- a/f\n+++ b/f\n+hello".to_string());
+        
+        let id = db.insert_event(&event).unwrap();
+
+        // 1. traz_show
+        let show_payload = json!({
+            "params": {
+                "name": "traz_show",
+                "arguments": {
+                    "id": id
+                }
+            }
+        });
+        let res_show = handle_tool_call(&db, &show_payload, false);
+        assert!(res_show.get("isError").is_none());
+        let text_show = res_show["content"][0]["text"].as_str().unwrap();
+        assert!(text_show.contains("Testing show and diff"));
+
+        // 2. traz_diff
+        let diff_payload = json!({
+            "params": {
+                "name": "traz_diff",
+                "arguments": {
+                    "id": id
+                }
+            }
+        });
+        let res_diff = handle_tool_call(&db, &diff_payload, false);
+        assert!(res_diff.get("isError").is_none());
+        let text_diff = res_diff["content"][0]["text"].as_str().unwrap();
+        assert!(text_diff.contains("+hello"));
+
+        // 3. traz_show missing event -> isError=true
+        let show_missing = json!({
+            "params": {
+                "name": "traz_show",
+                "arguments": {
+                    "id": 99999
+                }
+            }
+        });
+        let res_show_missing = handle_tool_call(&db, &show_missing, false);
+        assert_eq!(res_show_missing["isError"], true);
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_traz_recap() {
+        let (db, test_dir) = setup_test_env("recap");
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "bug_fix".to_string(),
+            "Recap item test".to_string(),
+            None,
+            None,
+            None,
+        );
+        db.insert_event(&event).unwrap();
+
+        let recap_payload = json!({
+            "params": {
+                "name": "traz_recap",
+                "arguments": {
+                    "hours": 12,
+                    "format": "markdown"
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &recap_payload, false);
+        assert!(res.get("isError").is_none());
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Recap"));
+        assert!(text.contains("Recap item test"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_experimental_enabled() {
+        let (db, test_dir) = setup_test_env("experimental");
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Exp event".to_string(),
+            None,
+            None,
+            None,
+        );
+        let id = db.insert_event(&event).unwrap();
+
+        // 1. traz_timeline
+        let timeline_payload = json!({
+            "params": {
+                "name": "traz_timeline",
+                "arguments": {}
+            }
+        });
+        let res_timeline = handle_tool_call(&db, &timeline_payload, true);
+        assert!(res_timeline.get("isError").is_none());
+        assert!(res_timeline["content"][0]["text"].as_str().unwrap().contains("Exp event"));
+
+        // 2. traz_delete
+        let delete_payload = json!({
+            "params": {
+                "name": "traz_delete",
+                "arguments": {
+                    "id": id
+                }
+            }
+        });
+        let res_delete = handle_tool_call(&db, &delete_payload, true);
+        assert!(res_delete.get("isError").is_none());
+        assert!(res_delete["content"][0]["text"].as_str().unwrap().contains("deleted"));
+
+        // Verify it was deleted
+        assert!(db.get_event(id).unwrap().is_none());
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_bad_arguments() {
+        let (db, test_dir) = setup_test_env("bad_arguments");
+
+        // 1. traz_search missing query
+        let bad_search = json!({
+            "params": {
+                "name": "traz_search",
+                "arguments": {}
+            }
+        });
+        let res_search = handle_tool_call(&db, &bad_search, false);
+        assert_eq!(res_search["isError"], true);
+        assert!(res_search["content"][0]["text"].as_str().unwrap().contains("Missing required argument"));
+
+        // 2. traz_show missing id
+        let bad_show = json!({
+            "params": {
+                "name": "traz_show",
+                "arguments": {}
+            }
+        });
+        let res_show = handle_tool_call(&db, &bad_show, false);
+        assert_eq!(res_show["isError"], true);
+
+        // 3. traz_diff bad id format
+        let bad_diff = json!({
+            "params": {
+                "name": "traz_diff",
+                "arguments": {
+                    "id": "not_an_integer"
+                }
+            }
+        });
+        let res_diff = handle_tool_call(&db, &bad_diff, false);
+        assert_eq!(res_diff["isError"], true);
+
+        cleanup_test_env(test_dir);
+    }
 }
+
