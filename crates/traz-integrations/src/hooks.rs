@@ -276,30 +276,209 @@ pub fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) 
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_handle_hook_session_init() {
+    fn setup_test_env(test_name: &str) -> (Db, std::path::PathBuf) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let temp_db_path = std::env::temp_dir().join(format!("traz_test_{}.db", ts));
+        let unique_dir = std::env::temp_dir().join(format!("traz_test_{}_{}", test_name, ts));
+        let _ = std::fs::create_dir_all(&unique_dir);
+        let db_path = unique_dir.join("traz.db");
+        let db = Db::open(&db_path).unwrap();
+        (db, unique_dir)
+    }
 
-        // Open a temp database
-        let db = Db::open(&temp_db_path).unwrap();
+    fn cleanup_test_env(unique_dir: std::path::PathBuf) {
+        let _ = std::fs::remove_dir_all(unique_dir);
+    }
+
+    #[test]
+    fn test_handle_hook_session_init_with_shared_memory() {
+        let (db, test_dir) = setup_test_env("session_init_shared");
+
+        // Pre-populate active_session.json with another tool active recently
+        let active_session_path = test_dir.join("active_session.json");
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        let state = ActiveSessionState {
+            session_id: "other-session-456".to_string(),
+            tool: "claude-code".to_string(),
+            updated_at: now - 600, // 10 minutes ago
+        };
+        let serialized = serde_json::to_string_pretty(&state).unwrap();
+        fs::write(&active_session_path, serialized).unwrap();
 
         let stdin_payload = r#"{
             "conversation_id": "test-session-123",
             "cwd": "/some/project",
-            "prompt": "Hello this is a test prompt to see if hook context injection works properly"
+            "prompt": "Hello this is a test prompt"
         }"#;
 
         let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload).unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
 
         assert!(res.should_continue);
+        let specific_output = res.hookSpecificOutput.unwrap();
+        assert_eq!(specific_output.hookEventName, "UserPromptSubmit");
+        assert!(specific_output.additionalContext.contains("SHARED MEMORY UPDATE"));
+        assert!(specific_output.additionalContext.contains("claude-code"));
+        assert!(specific_output.additionalContext.contains("other-session-456"));
 
-        // Clean up
-        let _ = std::fs::remove_file(&temp_db_path);
-        let _ = std::fs::remove_file(std::env::temp_dir().join("active_session.json"));
+        // Verify active session state has updated to cursor
+        let updated_content = fs::read_to_string(&active_session_path).unwrap();
+        let updated_state: ActiveSessionState = serde_json::from_str(&updated_content).unwrap();
+        assert_eq!(updated_state.tool, "cursor");
+        assert_eq!(updated_state.session_id, "test-session-123");
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_hook_session_init_expired_shared_memory() {
+        let (db, test_dir) = setup_test_env("session_init_expired");
+
+        // Pre-populate active_session.json with another tool active long ago
+        let active_session_path = test_dir.join("active_session.json");
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        let state = ActiveSessionState {
+            session_id: "other-session-456".to_string(),
+            tool: "claude-code".to_string(),
+            updated_at: now - 8000, // > 2 hours ago
+        };
+        let serialized = serde_json::to_string_pretty(&state).unwrap();
+        fs::write(&active_session_path, serialized).unwrap();
+
+        let stdin_payload = r#"{
+            "conversation_id": "test-session-123",
+            "cwd": "/some/project",
+            "prompt": "Hello this is a test prompt"
+        }"#;
+
+        let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload).unwrap();
+        let res: HookOutput = serde_json::from_str(&res_str).unwrap();
+
+        assert!(res.should_continue);
+        // Should not have output or additional context because prompt is < 20 chars
+        // and shared memory was expired.
+        assert!(res.hookSpecificOutput.is_none());
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_hook_context() {
+        let (db, test_dir) = setup_test_env("context");
+
+        let res_str = handle_hook(&db, "cursor", "context", "{}").unwrap();
+        let res: HookOutput = serde_json::from_str(&res_str).unwrap();
+
+        assert!(res.should_continue);
+        let spec = res.hookSpecificOutput.unwrap();
+        assert_eq!(spec.hookEventName, "SessionStart");
+        assert!(res.systemMessage.unwrap().contains("traz: Context successfully synchronized"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_hook_observation() {
+        let (db, test_dir) = setup_test_env("observation");
+
+        let stdin_payload = r#"{
+            "conversation_id": "session-obs-789",
+            "tool_name": "cargo test",
+            "tool_input": { "args": ["--verbose"] },
+            "tool_response": "tests passed",
+            "exit_code": 0
+        }"#;
+
+        let res_str = handle_hook(&db, "cursor", "observation", stdin_payload).unwrap();
+        let res: HookOutput = serde_json::from_str(&res_str).unwrap();
+        assert!(res.should_continue);
+
+        // Verify database entry
+        let events = db.get_recent_events(10).unwrap();
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        assert_eq!(event.tool, "cursor");
+        assert_eq!(event.event_type, "note");
+        assert_eq!(event.title, "Ran tool: cargo test");
+        assert_eq!(event.session_id.as_deref(), Some("session-obs-789"));
+        assert!(event.summary.as_ref().unwrap().contains("Input"));
+        assert!(event.summary.as_ref().unwrap().contains("Output"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_hook_file_edit() {
+        let (db, test_dir) = setup_test_env("file_edit");
+
+        let stdin_payload = r#"{
+            "conversation_id": "session-edit-101",
+            "file_path": "src/lib.rs",
+            "edits": { "insertions": 10 }
+        }"#;
+
+        let res_str = handle_hook(&db, "cursor", "file-edit", stdin_payload).unwrap();
+        let res: HookOutput = serde_json::from_str(&res_str).unwrap();
+        assert!(res.should_continue);
+
+        // Verify database entry
+        let events = db.get_recent_events(10).unwrap();
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        assert_eq!(event.tool, "cursor");
+        assert_eq!(event.event_type, "refactor");
+        assert_eq!(event.title, "Modified file: src/lib.rs");
+        assert_eq!(event.session_id.as_deref(), Some("session-edit-101"));
+        assert_eq!(event.files.as_ref().unwrap(), &vec!["src/lib.rs".to_string()]);
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_hook_summarize() {
+        let (db, test_dir) = setup_test_env("summarize");
+
+        let stdin_payload = r#"{
+            "conversation_id": "session-sum-202",
+            "last_assistant_message": "Completed implementing tests."
+        }"#;
+
+        let res_str = handle_hook(&db, "cursor", "summarize", stdin_payload).unwrap();
+        let res: HookOutput = serde_json::from_str(&res_str).unwrap();
+        assert!(res.should_continue);
+
+        // Verify database entry
+        let events = db.get_recent_events(10).unwrap();
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        assert_eq!(event.tool, "cursor");
+        assert_eq!(event.event_type, "note");
+        assert_eq!(event.title, "Session ended: cursor");
+        assert_eq!(event.summary.as_ref().unwrap(), "Completed implementing tests.");
+        assert_eq!(event.session_id.as_deref(), Some("session-sum-202"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_hook_invalid_stdin() {
+        let (db, test_dir) = setup_test_env("invalid_stdin");
+
+        let res_str = handle_hook(&db, "cursor", "session-init", "{invalid-json}").unwrap();
+        let res: HookOutput = serde_json::from_str(&res_str).unwrap();
+        assert!(res.should_continue);
+        assert!(res.hookSpecificOutput.is_none());
+
+        cleanup_test_env(test_dir);
     }
 }
