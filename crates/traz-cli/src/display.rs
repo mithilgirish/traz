@@ -332,7 +332,7 @@ mod tests {
         // Since we are running in tests (usually not a TTY or stderr/stdout captured),
         // let's verify it returns either the ANSI codes or empty strings.
         // It shouldn't panic.
-        assert_eq!(colors.0.contains("\x1b[0m") || colors.0.is_empty(), true);
+        assert!(colors.0.contains("\x1b[0m") || colors.0.is_empty());
     }
 
     #[test]
@@ -350,8 +350,8 @@ mod tests {
 
         // Run printers to ensure they don't panic on empty or populated options
         print_event(&event);
-        print_events(&[event.clone()]);
-        print_events_json(&[event.clone()]);
+        print_events(std::slice::from_ref(&event));
+        print_events_json(std::slice::from_ref(&event));
         print_event_detail(&event);
         print_context("# Header\n## Subheader\n### Small\n- **bullet**\n**bold**\nregular text");
         print_empty("No events found");
@@ -361,4 +361,3 @@ mod tests {
         print_warning("warning msg");
     }
 }
-

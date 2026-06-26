@@ -340,7 +340,7 @@ async fn context_summary(
 mod tests {
     use super::*;
     use axum::body::Body;
-    use axum::http::{header, Request, StatusCode};
+    use axum::http::{Request, StatusCode, header};
     use std::time::SystemTime;
     use tower::ServiceExt;
 
@@ -377,8 +377,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        
-        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
         let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body_json["status"], "ok");
         assert_eq!(body_json["service"], "traz");
@@ -401,7 +403,8 @@ mod tests {
             "tags": ["testing", "api"]
         });
 
-        let response = app.clone()
+        let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -415,7 +418,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::CREATED);
-        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
         let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body_json["status"], "created");
         assert!(body_json.get("id").is_some());
@@ -433,9 +438,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(response_list.status(), StatusCode::OK);
-        let body_list = axum::body::to_bytes(response_list.into_body(), 10240).await.unwrap();
+        let body_list = axum::body::to_bytes(response_list.into_body(), 10240)
+            .await
+            .unwrap();
         let list_json: serde_json::Value = serde_json::from_slice(&body_list).unwrap();
-        
+
         let events_arr = list_json.as_array().unwrap();
         assert_eq!(events_arr.len(), 1);
         assert_eq!(events_arr[0]["tool"], "cursor");
@@ -480,7 +487,8 @@ mod tests {
             None,
             None,
             None,
-        )).unwrap();
+        ))
+        .unwrap();
 
         let response = app
             .oneshot(
@@ -494,7 +502,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
         let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body_json["total_events"], 1);
         let by_tool = body_json["by_tool"].as_array().unwrap();
@@ -509,17 +519,20 @@ mod tests {
         let (db, test_dir) = setup_test_env("delete");
         let app = create_router(db.clone());
 
-        let id = db.insert_event(&traz_core::Event::new(
-            "cursor".to_string(),
-            "refactor".to_string(),
-            "Title".to_string(),
-            None,
-            None,
-            None,
-        )).unwrap();
+        let id = db
+            .insert_event(&traz_core::Event::new(
+                "cursor".to_string(),
+                "refactor".to_string(),
+                "Title".to_string(),
+                None,
+                None,
+                None,
+            ))
+            .unwrap();
 
         // 1. Delete existing
-        let response = app.clone()
+        let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("DELETE")
@@ -532,7 +545,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
         let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body_json["status"], "deleted");
         assert_eq!(body_json["id"], id);
@@ -567,10 +582,12 @@ mod tests {
             None,
             None,
             None,
-        )).unwrap();
+        ))
+        .unwrap();
 
         // 1. Valid search
-        let response = app.clone()
+        let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/search?search=Target")
@@ -582,7 +599,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 10240)
+            .await
+            .unwrap();
         let results: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["title"], "Target search string");
@@ -645,7 +664,8 @@ mod tests {
             None,
             None,
             None,
-        )).unwrap();
+        ))
+        .unwrap();
 
         let response = app
             .oneshot(
@@ -659,13 +679,19 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 10240)
+            .await
+            .unwrap();
         let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        
-        assert!(body_json["context"].as_str().unwrap().contains("Testing context endpoint"));
+
+        assert!(
+            body_json["context"]
+                .as_str()
+                .unwrap()
+                .contains("Testing context endpoint")
+        );
         assert_eq!(body_json["format"], "markdown");
 
         cleanup_test_env(test_dir);
     }
 }
-

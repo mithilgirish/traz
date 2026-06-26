@@ -54,7 +54,10 @@ index 854d8f9..d25b578 100644
 
         // diff line -> Yellow
         assert_eq!(lines[0].spans[0].style.fg, Some(Color::Yellow));
-        assert_eq!(lines[0].spans[0].content, "diff --git a/src/lib.rs b/src/lib.rs");
+        assert_eq!(
+            lines[0].spans[0].content,
+            "diff --git a/src/lib.rs b/src/lib.rs"
+        );
 
         // index line -> Yellow
         assert_eq!(lines[1].spans[0].style.fg, Some(Color::Yellow));
@@ -78,4 +81,3 @@ index 854d8f9..d25b578 100644
         assert_eq!(lines[7].spans[0].style.fg, Some(Color::Green));
     }
 }
-

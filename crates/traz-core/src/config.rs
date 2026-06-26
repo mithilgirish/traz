@@ -151,24 +151,32 @@ mod tests {
     #[test]
     fn test_config_env_db_override() {
         let (db_path, test_dir) = get_unique_temp_db_path("env_db");
-        unsafe { env::set_var("TRAZ_DB", &db_path); }
+        unsafe {
+            env::set_var("TRAZ_DB", &db_path);
+        }
 
         let config = TrazConfig::resolve();
         assert_eq!(config.db_path, db_path);
 
-        unsafe { env::remove_var("TRAZ_DB"); }
+        unsafe {
+            env::remove_var("TRAZ_DB");
+        }
         let _ = fs::remove_dir_all(test_dir);
     }
 
     #[test]
     fn test_config_env_port_override() {
         let (db_path, test_dir) = get_unique_temp_db_path("env_port");
-        unsafe { env::set_var("TRAZ_PORT", "8888"); }
+        unsafe {
+            env::set_var("TRAZ_PORT", "8888");
+        }
 
         let config = TrazConfig::load_or_default(db_path);
         assert_eq!(config.api_port, 8888);
 
-        unsafe { env::remove_var("TRAZ_PORT"); }
+        unsafe {
+            env::remove_var("TRAZ_PORT");
+        }
         let _ = fs::remove_dir_all(test_dir);
     }
 

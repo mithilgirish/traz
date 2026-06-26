@@ -139,7 +139,8 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let unique_dir = std::env::temp_dir().join(format!("traz_tui_app_test_{}_{}", test_name, ts));
+        let unique_dir =
+            std::env::temp_dir().join(format!("traz_tui_app_test_{}_{}", test_name, ts));
         let _ = fs::create_dir_all(&unique_dir);
         let db_path = unique_dir.join("traz.db");
         let db = Db::open(&db_path).unwrap();
@@ -150,7 +151,7 @@ mod tests {
     fn test_app_initialization() {
         let (db, test_dir) = setup_test_db("init");
         let custom_theme = test_dir.join("theme.json");
-        
+
         let event1 = traz_core::Event::new(
             "cursor".to_string(),
             "feature".to_string(),
@@ -190,7 +191,7 @@ mod tests {
         // Simulate passage of time by mutating the status time backwards by 4 seconds
         app.status_message_time = Some(Instant::now() - Duration::from_secs(4));
         app.check_status_message();
-        
+
         // Now it should be cleared
         assert!(app.status_message.is_none());
         assert!(app.status_message_time.is_none());
@@ -222,7 +223,11 @@ mod tests {
         db.insert_event(&e1).unwrap();
         db.insert_event(&e2).unwrap();
 
-        let mut app = App::new(db, vec![e1.clone(), e2.clone()], test_dir.join("theme.json"));
+        let mut app = App::new(
+            db,
+            vec![e1.clone(), e2.clone()],
+            test_dir.join("theme.json"),
+        );
 
         // 1. Keyword filter
         app.search_query = "error".to_string();
@@ -242,4 +247,3 @@ mod tests {
         let _ = fs::remove_dir_all(test_dir);
     }
 }
-

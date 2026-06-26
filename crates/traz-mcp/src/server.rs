@@ -687,7 +687,7 @@ mod tests {
     fn test_mcp_build_tool_definitions() {
         let stable_tools = build_tool_definitions(false);
         let stable_arr = stable_tools.as_array().unwrap();
-        
+
         // Assert that stable tools are returned, but no experimental ones
         assert!(stable_arr.iter().any(|t| t["name"] == "traz_recent"));
         assert!(stable_arr.iter().any(|t| t["name"] == "traz_add"));
@@ -696,7 +696,11 @@ mod tests {
 
         let experimental_tools = build_tool_definitions(true);
         let experimental_arr = experimental_tools.as_array().unwrap();
-        assert!(experimental_arr.iter().any(|t| t["name"] == "traz_timeline"));
+        assert!(
+            experimental_arr
+                .iter()
+                .any(|t| t["name"] == "traz_timeline")
+        );
     }
 
     #[test]
@@ -823,7 +827,10 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "checkpoint");
         assert_eq!(events[0].title, "Session Checkpoint");
-        assert_eq!(events[0].summary.as_deref(), Some("Completed auth feature. All tests pass."));
+        assert_eq!(
+            events[0].summary.as_deref(),
+            Some("Completed auth feature. All tests pass.")
+        );
 
         cleanup_test_env(test_dir);
     }
@@ -900,7 +907,7 @@ mod tests {
             None,
         )
         .with_diff("--- a/f\n+++ b/f\n+hello".to_string());
-        
+
         let id = db.insert_event(&event).unwrap();
 
         // 1. traz_show
@@ -1002,7 +1009,12 @@ mod tests {
         });
         let res_timeline = handle_tool_call(&db, &timeline_payload, true);
         assert!(res_timeline.get("isError").is_none());
-        assert!(res_timeline["content"][0]["text"].as_str().unwrap().contains("Exp event"));
+        assert!(
+            res_timeline["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Exp event")
+        );
 
         // 2. traz_delete
         let delete_payload = json!({
@@ -1015,7 +1027,12 @@ mod tests {
         });
         let res_delete = handle_tool_call(&db, &delete_payload, true);
         assert!(res_delete.get("isError").is_none());
-        assert!(res_delete["content"][0]["text"].as_str().unwrap().contains("deleted"));
+        assert!(
+            res_delete["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("deleted")
+        );
 
         // Verify it was deleted
         assert!(db.get_event(id).unwrap().is_none());
@@ -1036,7 +1053,12 @@ mod tests {
         });
         let res_search = handle_tool_call(&db, &bad_search, false);
         assert_eq!(res_search["isError"], true);
-        assert!(res_search["content"][0]["text"].as_str().unwrap().contains("Missing required argument"));
+        assert!(
+            res_search["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Missing required argument")
+        );
 
         // 2. traz_show missing id
         let bad_show = json!({
@@ -1063,4 +1085,3 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 }
-

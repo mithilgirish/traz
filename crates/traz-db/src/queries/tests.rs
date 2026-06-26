@@ -466,11 +466,7 @@ mod tests {
             let path_clone = Arc::clone(&db_path_arc);
             let handle = thread::spawn(move || {
                 let db = Db::open(&path_clone).unwrap();
-                let event = sample_event(
-                    "cursor",
-                    "feature",
-                    &format!("Thread {} event", i),
-                );
+                let event = sample_event("cursor", "feature", &format!("Thread {} event", i));
                 db.insert_event(&event).unwrap();
             });
             handles.push(handle);
@@ -492,9 +488,15 @@ mod tests {
     #[test]
     fn test_delete_events_after() {
         let db = test_db();
-        let id1 = db.insert_event(&sample_event("cursor", "feature", "First event")).unwrap();
-        let id2 = db.insert_event(&sample_event("cursor", "feature", "Second event")).unwrap();
-        let id3 = db.insert_event(&sample_event("cursor", "feature", "Third event")).unwrap();
+        let id1 = db
+            .insert_event(&sample_event("cursor", "feature", "First event"))
+            .unwrap();
+        let id2 = db
+            .insert_event(&sample_event("cursor", "feature", "Second event"))
+            .unwrap();
+        let id3 = db
+            .insert_event(&sample_event("cursor", "feature", "Third event"))
+            .unwrap();
 
         let affected = db.delete_events_after(id1).unwrap();
         assert_eq!(affected, 2);
@@ -536,7 +538,10 @@ mod tests {
         // Verify epoch event was created
         let epoch_event = db.get_event(epoch_id).unwrap().unwrap();
         assert_eq!(epoch_event.event_type, "epoch");
-        assert_eq!(epoch_event.summary, Some("Summary of older epoch".to_string()));
+        assert_eq!(
+            epoch_event.summary,
+            Some("Summary of older epoch".to_string())
+        );
     }
 
     #[test]
@@ -544,11 +549,19 @@ mod tests {
         let db = test_db();
         // Since test_db has embeddings disabled by default config,
         // hybrid_search should fallback to purely keyword search results
-        let _id1 = db.insert_event(&sample_event("claude", "decision", "Rust is great")).unwrap();
-        let id2 = db.insert_event(&sample_event("claude", "bug_fix", "Fix compilation error")).unwrap();
+        let _id1 = db
+            .insert_event(&sample_event("claude", "decision", "Rust is great"))
+            .unwrap();
+        let id2 = db
+            .insert_event(&sample_event("claude", "bug_fix", "Fix compilation error"))
+            .unwrap();
 
         let results = db
-            .hybrid_search("compilation", &crate::queries::read::SearchFilters::default(), 10)
+            .hybrid_search(
+                "compilation",
+                &crate::queries::read::SearchFilters::default(),
+                10,
+            )
             .unwrap();
 
         assert_eq!(results.len(), 1);
@@ -558,19 +571,16 @@ mod tests {
     #[test]
     fn test_get_context_optimized_budget() {
         let db = test_db();
-        db.insert_event(&sample_event("cursor", "feature", "Event A")).unwrap();
-        db.insert_event(&sample_event("cursor", "feature", "Event B")).unwrap();
-        db.insert_event(&sample_event("cursor", "feature", "Event C")).unwrap();
+        db.insert_event(&sample_event("cursor", "feature", "Event A"))
+            .unwrap();
+        db.insert_event(&sample_event("cursor", "feature", "Event B"))
+            .unwrap();
+        db.insert_event(&sample_event("cursor", "feature", "Event C"))
+            .unwrap();
 
         // 1. Markdown Format - Unlimited budget
         let markdown_ctx = db
-            .get_context_optimized(
-                None,
-                10,
-                traz_core::OutputFormat::Markdown,
-                None,
-                false,
-            )
+            .get_context_optimized(None, 10, traz_core::OutputFormat::Markdown, None, false)
             .unwrap();
         assert!(markdown_ctx.contains("# traz — Engineering Context Summary"));
         assert!(markdown_ctx.contains("Event A"));
@@ -579,13 +589,7 @@ mod tests {
 
         // 2. Dense Format - Unlimited budget
         let dense_ctx = db
-            .get_context_optimized(
-                None,
-                10,
-                traz_core::OutputFormat::Dense,
-                None,
-                false,
-            )
+            .get_context_optimized(None, 10, traz_core::OutputFormat::Dense, None, false)
             .unwrap();
         assert!(dense_ctx.contains("traz|events:3"));
         assert!(dense_ctx.contains("Event A"));
@@ -593,17 +597,10 @@ mod tests {
         // 3. Budget Truncation (strict low token budget)
         // With a budget of 20 tokens, only the header should fit, truncating the rest
         let truncated_ctx = db
-            .get_context_optimized(
-                None,
-                10,
-                traz_core::OutputFormat::Markdown,
-                Some(20),
-                false,
-            )
+            .get_context_optimized(None, 10, traz_core::OutputFormat::Markdown, Some(20), false)
             .unwrap();
         assert!(traz_core::estimate_tokens(&truncated_ctx) <= 35);
         assert!(truncated_ctx.contains("# traz"));
         assert!(!truncated_ctx.contains("Event A")); // Should be truncated
     }
 }
-

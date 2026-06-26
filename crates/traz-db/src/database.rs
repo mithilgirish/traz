@@ -220,9 +220,9 @@ mod tests {
     #[test]
     fn test_db_migrate_idempotent() {
         let (db_path, temp_dir) = get_temp_db_path();
-        
+
         let db = Db::open(&db_path).unwrap();
-        
+
         // Running migrate again shouldn't fail or corrupt data
         let res = db.migrate();
         assert!(res.is_ok());
@@ -232,10 +232,10 @@ mod tests {
             let conn = db.lock_conn();
             // Try to add an existing column - should not fail
             Db::add_column_if_missing(&conn, "title");
-            
+
             // Add a new column that's not there
             Db::add_column_if_missing(&conn, "some_new_test_field");
-            
+
             // Verify new column exists
             let has_col: bool = conn
                 .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='some_new_test_field'")
@@ -249,4 +249,3 @@ mod tests {
         fs::remove_dir_all(temp_dir).unwrap();
     }
 }
-

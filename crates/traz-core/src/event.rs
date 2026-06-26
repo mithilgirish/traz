@@ -219,7 +219,10 @@ mod tests {
         );
 
         let display_str = format!("{}", event);
-        assert_eq!(display_str, "[2026-06-26 12:00:00] aider · refactor — Clean codebase");
+        assert_eq!(
+            display_str,
+            "[2026-06-26 12:00:00] aider · refactor — Clean codebase"
+        );
     }
 
     #[test]
@@ -251,4 +254,3 @@ mod tests {
         assert!(deserialized.summary.is_none());
     }
 }
-

@@ -284,11 +284,12 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let unique_dir = std::env::temp_dir().join(format!("traz_tui_input_test_{}_{}", test_name, ts));
+        let unique_dir =
+            std::env::temp_dir().join(format!("traz_tui_input_test_{}_{}", test_name, ts));
         let _ = fs::create_dir_all(&unique_dir);
         let db_path = unique_dir.join("traz.db");
         let db = Db::open(&db_path).unwrap();
-        
+
         let event1 = traz_core::Event::new(
             "cursor".to_string(),
             "feature".to_string(),
@@ -305,7 +306,7 @@ mod tests {
             None,
             None,
         );
-        
+
         let app = App::new(db, vec![event1, event2], unique_dir.join("theme.json"));
         (app, unique_dir)
     }
@@ -319,8 +320,8 @@ mod tests {
         let (mut app, test_dir) = setup_test_app("exit");
 
         // Esc or 'q' in List mode should exit
-        assert_eq!(handle_input(&mut app, press(KeyCode::Char('q'))).unwrap(), true);
-        assert_eq!(handle_input(&mut app, press(KeyCode::Esc)).unwrap(), true);
+        assert!(handle_input(&mut app, press(KeyCode::Char('q'))).unwrap());
+        assert!(handle_input(&mut app, press(KeyCode::Esc)).unwrap());
 
         let _ = fs::remove_dir_all(test_dir);
     }
@@ -406,4 +407,3 @@ mod tests {
         let _ = fs::remove_dir_all(test_dir);
     }
 }
-

@@ -302,7 +302,7 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        
+
         let state = ActiveSessionState {
             session_id: "other-session-456".to_string(),
             tool: "claude-code".to_string(),
@@ -323,9 +323,17 @@ mod tests {
         assert!(res.should_continue);
         let specific_output = res.hookSpecificOutput.unwrap();
         assert_eq!(specific_output.hookEventName, "UserPromptSubmit");
-        assert!(specific_output.additionalContext.contains("SHARED MEMORY UPDATE"));
+        assert!(
+            specific_output
+                .additionalContext
+                .contains("SHARED MEMORY UPDATE")
+        );
         assert!(specific_output.additionalContext.contains("claude-code"));
-        assert!(specific_output.additionalContext.contains("other-session-456"));
+        assert!(
+            specific_output
+                .additionalContext
+                .contains("other-session-456")
+        );
 
         // Verify active session state has updated to cursor
         let updated_content = fs::read_to_string(&active_session_path).unwrap();
@@ -346,7 +354,7 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        
+
         let state = ActiveSessionState {
             session_id: "other-session-456".to_string(),
             tool: "claude-code".to_string(),
@@ -382,7 +390,11 @@ mod tests {
         assert!(res.should_continue);
         let spec = res.hookSpecificOutput.unwrap();
         assert_eq!(spec.hookEventName, "SessionStart");
-        assert!(res.systemMessage.unwrap().contains("traz: Context successfully synchronized"));
+        assert!(
+            res.systemMessage
+                .unwrap()
+                .contains("traz: Context successfully synchronized")
+        );
 
         cleanup_test_env(test_dir);
     }
@@ -439,7 +451,10 @@ mod tests {
         assert_eq!(event.event_type, "refactor");
         assert_eq!(event.title, "Modified file: src/lib.rs");
         assert_eq!(event.session_id.as_deref(), Some("session-edit-101"));
-        assert_eq!(event.files.as_ref().unwrap(), &vec!["src/lib.rs".to_string()]);
+        assert_eq!(
+            event.files.as_ref().unwrap(),
+            &vec!["src/lib.rs".to_string()]
+        );
 
         cleanup_test_env(test_dir);
     }
@@ -464,7 +479,10 @@ mod tests {
         assert_eq!(event.tool, "cursor");
         assert_eq!(event.event_type, "note");
         assert_eq!(event.title, "Session ended: cursor");
-        assert_eq!(event.summary.as_ref().unwrap(), "Completed implementing tests.");
+        assert_eq!(
+            event.summary.as_ref().unwrap(),
+            "Completed implementing tests."
+        );
         assert_eq!(event.session_id.as_deref(), Some("session-sum-202"));
 
         cleanup_test_env(test_dir);

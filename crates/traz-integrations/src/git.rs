@@ -365,10 +365,10 @@ mod tests {
         // Test appending: if a hook already exists with other commands, we should append
         fs::remove_file(&post_commit_path).unwrap();
         fs::write(&post_commit_path, "#!/bin/sh\necho 'hello'\n").unwrap();
-        
+
         let res_append = install_post_commit_hook(&temp_dir);
         assert!(res_append.is_ok());
-        
+
         let appended_content = fs::read_to_string(&post_commit_path).unwrap();
         assert!(appended_content.contains("echo 'hello'"));
         assert!(appended_content.contains("traz capture"));
@@ -377,4 +377,3 @@ mod tests {
         fs::remove_dir_all(&temp_dir).unwrap();
     }
 }
-

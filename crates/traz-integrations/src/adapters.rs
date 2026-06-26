@@ -323,7 +323,10 @@ mod tests {
         assert!(config.get("mcpServers").is_some());
         assert!(config["mcpServers"].get("traz").is_some());
         assert_eq!(config["mcpServers"]["traz"]["command"], "traz");
-        assert_eq!(config["mcpServers"]["traz"]["args"], serde_json::json!(["mcp"]));
+        assert_eq!(
+            config["mcpServers"]["traz"]["args"],
+            serde_json::json!(["mcp"])
+        );
     }
 
     #[test]
@@ -332,7 +335,10 @@ mod tests {
         assert!(config.get("mcpServers").is_some());
         assert!(config["mcpServers"].get("traz").is_some());
         assert_eq!(config["mcpServers"]["traz"]["command"], "traz");
-        assert_eq!(config["mcpServers"]["traz"]["args"], serde_json::json!(["mcp"]));
+        assert_eq!(
+            config["mcpServers"]["traz"]["args"],
+            serde_json::json!(["mcp"])
+        );
     }
 
     #[test]
@@ -356,7 +362,7 @@ mod tests {
             assert!(res.is_ok());
             let instructions = res.unwrap();
             assert!(!instructions.trim().is_empty());
-            
+
             // Check key phrases based on target platform
             match platform {
                 "opencode" => {
