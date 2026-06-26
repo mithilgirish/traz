@@ -98,5 +98,17 @@ mod tests {
 
         assert!((cosine_similarity(&a, &b) - 1.0).abs() < 1e-5);
         assert!((cosine_similarity(&a, &c) - 0.0).abs() < 1e-5);
+
+        // Edge Cases
+        // 1. Empty slices
+        assert_eq!(cosine_similarity(&[], &[]), 0.0);
+        // 2. Length mismatch
+        assert_eq!(cosine_similarity(&[1.0], &[1.0, 2.0]), 0.0);
+        // 3. Zero magnitude vectors
+        assert_eq!(cosine_similarity(&[0.0, 0.0], &[1.0, 1.0]), 0.0);
+        // 4. Negative correlation
+        let d = vec![1.0, 2.0];
+        let e = vec![-1.0, -2.0];
+        assert!((cosine_similarity(&d, &e) - (-1.0)).abs() < 1e-5);
     }
 }

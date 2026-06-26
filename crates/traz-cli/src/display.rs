@@ -284,3 +284,81 @@ pub fn print_warning(msg: &str) {
     let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = get_colors();
     println!("  {YELLOW}⚠{RESET} {msg}");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+    use traz_core::Event;
+
+    #[test]
+    fn test_relative_time() {
+        let now = Utc::now();
+
+        // 30 seconds ago -> "just now"
+        let just_now = now - Duration::seconds(30);
+        assert_eq!(relative_time(&just_now), "just now");
+
+        // 5 minutes ago -> "5m ago"
+        let mins_ago = now - Duration::minutes(5);
+        assert_eq!(relative_time(&mins_ago), "5m ago");
+
+        // 3 hours ago -> "3h ago"
+        let hours_ago = now - Duration::hours(3);
+        assert_eq!(relative_time(&hours_ago), "3h ago");
+
+        // 4 days ago -> "4d ago"
+        let days_ago = now - Duration::days(4);
+        assert_eq!(relative_time(&days_ago), "4d ago");
+    }
+
+    #[test]
+    fn test_type_icon() {
+        assert_eq!(type_icon("bug_fix"), "🐛");
+        assert_eq!(type_icon("feature"), "✨");
+        assert_eq!(type_icon("refactor"), "♻️ ");
+        assert_eq!(type_icon("decision"), "📌");
+        assert_eq!(type_icon("commit"), "📝");
+        assert_eq!(type_icon("debug"), "🔍");
+        assert_eq!(type_icon("test"), "🧪");
+        assert_eq!(type_icon("deploy"), "🚀");
+        assert_eq!(type_icon("revert"), "⏪");
+        assert_eq!(type_icon("unknown_type"), "•");
+    }
+
+    #[test]
+    fn test_get_colors() {
+        let colors = get_colors();
+        // Since we are running in tests (usually not a TTY or stderr/stdout captured),
+        // let's verify it returns either the ANSI codes or empty strings.
+        // It shouldn't panic.
+        assert_eq!(colors.0.contains("\x1b[0m") || colors.0.is_empty(), true);
+    }
+
+    #[test]
+    fn test_printers_execute_without_panic() {
+        let event = Event::new(
+            "test_tool".to_string(),
+            "bug_fix".to_string(),
+            "Fix something".to_string(),
+            Some("Detailed line 1\nLine 2".to_string()),
+            Some(vec!["file_a.txt".to_string()]),
+            None,
+        )
+        .with_tags(vec!["tag1".to_string()])
+        .with_diff("--- a/file_a.txt\n+++ b/file_a.txt\n+added".to_string());
+
+        // Run printers to ensure they don't panic on empty or populated options
+        print_event(&event);
+        print_events(&[event.clone()]);
+        print_events_json(&[event.clone()]);
+        print_event_detail(&event);
+        print_context("# Header\n## Subheader\n### Small\n- **bullet**\n**bold**\nregular text");
+        print_empty("No events found");
+        print_success("Done!");
+        print_header("SUMMARY");
+        print_info("info msg");
+        print_warning("warning msg");
+    }
+}
+
