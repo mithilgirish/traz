@@ -4054,6 +4054,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tower",
  "tower-http 0.5.2",
  "tracing",
  "traz-core",

@@ -335,3 +335,135 @@ async fn context_summary(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{header, Request, StatusCode};
+    use std::time::SystemTime;
+    use tower::ServiceExt;
+
+    fn setup_test_env(test_name: &str) -> (Arc<Db>, std::path::PathBuf) {
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let unique_dir = std::env::temp_dir().join(format!("traz_api_test_{}_{}", test_name, ts));
+        let _ = std::fs::create_dir_all(&unique_dir);
+        let db_path = unique_dir.join("traz.db");
+        let db = Db::open(&db_path).unwrap();
+        (Arc::new(db), unique_dir)
+    }
+
+    fn cleanup_test_env(unique_dir: std::path::PathBuf) {
+        let _ = std::fs::remove_dir_all(unique_dir);
+    }
+
+    #[tokio::test]
+    async fn test_api_health() {
+        let (db, test_dir) = setup_test_env("health");
+        let app = create_router(db);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .header(header::HOST, "localhost:3000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body_json["status"], "ok");
+        assert_eq!(body_json["service"], "traz");
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_api_create_and_list_events() {
+        let (db, test_dir) = setup_test_env("events");
+        let app = create_router(db);
+
+        // 1. Create an event
+        let payload = serde_json::json!({
+            "tool": "cursor",
+            "type": "feature",
+            "title": "Add traz-api unit tests",
+            "summary": "Implemented route testing using tower oneshot",
+            "files": ["crates/traz-api/src/server.rs"],
+            "tags": ["testing", "api"]
+        });
+
+        let response = app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/events")
+                    .header(header::HOST, "localhost:3000")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body_json["status"], "created");
+        assert!(body_json.get("id").is_some());
+
+        // 2. List the events
+        let response_list = app
+            .oneshot(
+                Request::builder()
+                    .uri("/events")
+                    .header(header::HOST, "localhost:3000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response_list.status(), StatusCode::OK);
+        let body_list = axum::body::to_bytes(response_list.into_body(), 10240).await.unwrap();
+        let list_json: serde_json::Value = serde_json::from_slice(&body_list).unwrap();
+        
+        let events_arr = list_json.as_array().unwrap();
+        assert_eq!(events_arr.len(), 1);
+        assert_eq!(events_arr[0]["tool"], "cursor");
+        assert_eq!(events_arr[0]["type"], "feature");
+        assert_eq!(events_arr[0]["title"], "Add traz-api unit tests");
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_api_host_validation() {
+        let (db, test_dir) = setup_test_env("host_val");
+        let app = create_router(db);
+
+        // Host validation should block external domains like google.com
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .header(header::HOST, "google.com")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        cleanup_test_env(test_dir);
+    }
+}
