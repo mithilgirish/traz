@@ -35,11 +35,18 @@ When AI chats go on for too long, context windows fill up, causing AI performanc
 ## Client Setup
 
 ### Antigravity (agy)
-You can add `traz` as an MCP server to Antigravity using the CLI:
-```bash
-agy mcp add traz -- traz mcp
+You can configure `traz` in your workspace config file (`.agents/mcp_config.json`):
+```json
+{
+  "mcpServers": {
+    "traz": {
+      "command": "traz",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
-*(Alternatively, you can configure it via the interactive workspace setup menu).*
+*(Alternatively, you can run `traz setup agy` which offers to configure this for you automatically, or add it globally in `~/.gemini/config/mcp_config.json`).*
 
 ### Claude Code
 Claude Code natively supports MCP via the `mcp add` command:

@@ -133,6 +133,15 @@ async fn run_command(
                             }
                         }
                     }
+
+                    // Install traz skill for Antigravity/Gemini
+                    if std::fs::create_dir_all(".agents/skills/traz-memory").is_ok() {
+                        let path = cwd.join(".agents/skills/traz-memory/SKILL.md");
+                        let skill_content = traz_integrations::adapters::active_sync_skill();
+                        if safe_write(&path, skill_content, false).is_ok() {
+                            injected_count += 1;
+                        }
+                    }
                 }
 
                 if injected_count > 0 {
@@ -796,9 +805,6 @@ async fn run_command(
                     "codex" | "openai-codex" => {
                         Some(("codex", vec!["mcp", "add", "traz", "--", "traz", "mcp"]))
                     }
-                    "agy" | "antigravity" => {
-                        Some(("agy", vec!["mcp", "add", "traz", "--", "traz", "mcp"]))
-                    }
                     _ => None,
                 };
 
@@ -840,6 +846,15 @@ async fn run_command(
                         if let Err(e) = std::fs::create_dir_all(".agents/rules") {
                             eprintln!("Failed to create .agents/rules directory: {}", e);
                         }
+                        
+                        // Install traz skill for Antigravity/Gemini
+                        if std::fs::create_dir_all(".agents/skills/traz-memory").is_ok() {
+                            let cwd = std::env::current_dir().unwrap_or_default();
+                            let path = cwd.join(".agents/skills/traz-memory/SKILL.md");
+                            let skill_content = traz_integrations::adapters::active_sync_skill();
+                            let _ = safe_write(&path, skill_content, false);
+                        }
+
                         Some(".agents/rules/traz.md")
                     }
                     "aider" => Some("CONVENTIONS.md"),
@@ -1028,6 +1043,63 @@ async fn run_command(
                         println!();
                     }
                 }
+
+                // Special: Antigravity/Gemini workspace MCP configuration
+                if tool_lower == "agy" || tool_lower == "antigravity" || tool_lower == "gemini" || tool_lower == "gemini-cli" {
+                    #[allow(non_snake_case, unused_variables)]
+                    let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) =
+                        display::get_colors();
+                    if let Ok(cwd) = std::env::current_dir() {
+                        let agents_dir = cwd.join(".agents");
+                        let mcp_path = agents_dir.join("mcp_config.json");
+
+                        // Read existing config or create new
+                        let existing: serde_json::Value = if mcp_path.exists() {
+                            std::fs::read_to_string(&mcp_path)
+                                .ok()
+                                .and_then(|s| serde_json::from_str(&s).ok())
+                                .unwrap_or_else(|| serde_json::json!({"mcpServers": {}}))
+                        } else {
+                            serde_json::json!({"mcpServers": {}})
+                        };
+
+                        let mut agy_config = existing;
+                        if !agy_config.is_object() {
+                            agy_config = serde_json::json!({"mcpServers": {}});
+                        } else if agy_config.get("mcpServers").is_none() {
+                            agy_config["mcpServers"] = serde_json::json!({});
+                        }
+
+                        agy_config["mcpServers"]["traz"] = serde_json::json!({
+                            "command": "traz",
+                            "args": ["mcp"]
+                        });
+
+                        let json_str =
+                            serde_json::to_string_pretty(&agy_config).unwrap_or_default();
+
+                        if confirm_prompt(&format!(
+                            "  Auto-configure Antigravity workspace by writing to {}?",
+                            mcp_path.display()
+                        )) {
+                            if let Err(e) = std::fs::create_dir_all(&agents_dir) {
+                                println!("  {MAGENTA}✗{RESET} Could not create .agents/ directory: {}", e);
+                            } else if let Err(e) = safe_write(&mcp_path, &json_str, false) {
+                                println!(
+                                    "  {MAGENTA}✗{RESET} Could not write {}: {}",
+                                    mcp_path.display(),
+                                    e
+                                );
+                            } else {
+                                println!(
+                                    "  {GREEN}✓{RESET} {BOLD}traz added to Antigravity workspace config!{RESET} Restart your agy session to activate."
+                                );
+                            }
+                        }
+                        println!();
+                    }
+                }
+
 
                 if (tool_lower == "claude"
                     || tool_lower == "claude-code"

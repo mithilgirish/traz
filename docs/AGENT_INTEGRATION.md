@@ -48,8 +48,8 @@ At the start of every session:
 ### Step 1: Install
 ```bash
 traz setup agy
-# traz detects the agy CLI and offers to auto-run:
-# agy mcp add traz -- traz mcp
+# traz detects the workspace and offers to auto-write:
+# .agents/mcp_config.json
 ```
 
 ### Step 2: No extra config needed
