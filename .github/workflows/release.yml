@@ -139,6 +139,11 @@ jobs:
       - name: Install dependencies
         run: |
           ${{ matrix.packages_install }}
+      - name: Setup macOS Linker Search Path
+        if: runner.os == 'macOS'
+        run: |
+          RUNTIME_DIR=$(cc -print-runtime-dir)
+          echo "LIBRARY_PATH=$RUNTIME_DIR:$LIBRARY_PATH" >> $GITHUB_ENV
       - name: Build artifacts
         run: |
           # Actually do builds and make zips and whatnot

@@ -3,9 +3,30 @@ use anyhow::Result;
 /// Provides a highly token-optimized system prompt rule for AI agents.
 /// Instructs the agent to only sync when meaningful work is done, keeping summaries short.
 pub fn active_sync_prompt() -> &'static str {
-    "CRITICAL CONTEXT SYNC:\n\
-    1. READ: At the start of a session or when asked about project context/history, you MUST call `traz_recent` to retrieve the latest state.\n\
-    2. WRITE: After completing a major feature, fixing a bug, or receiving critical user context, you MUST call `traz_add` exactly ONCE. Keep the summary concise (1-3 sentences) to optimize tokens. Do not log conversational chitchat."
+    "## Traz — Developer Memory Layer (Active Sync Rules)\n\
+    \n\
+    This project uses `traz` for persistent AI memory via MCP. The following rules are MANDATORY:\n\
+    \n\
+    ### READ (Do this proactively)\n\
+    - At session start or when asked about project history/context: call `traz_recent` (limit 10).\n\
+    - Before fixing a bug or investigating an issue: call `traz_search` with relevant keywords.\n\
+    - Before touching core/architectural code: call `traz_context` for a project overview.\n\
+    \n\
+    ### WRITE (Do this after significant work)\n\
+    - After completing a feature, bug fix, refactor, or key decision: call `traz_add` ONCE.\n\
+    - Use the appropriate `event_type`: bug_fix | feature | decision | refactor | investigation | performance | security | config | note\n\
+    - Keep summaries concise (1–3 sentences). Include what changed and why. Do NOT log chitchat.\n\
+    \n\
+    ### CHECKPOINT (Do this before risky operations)\n\
+    - Before major refactors: call `traz_checkpoint` to mark a safe restore point.\n\
+    \n\
+    ### Available MCP Tools\n\
+    `traz_recent` · `traz_search` · `traz_add` · `traz_context` · `traz_recap` · `traz_checkpoint` · `traz_show` · `traz_diff` · `traz_stats`"
+}
+
+/// Returns the content of the traz skill file for AI agents.
+pub fn active_sync_skill() -> &'static str {
+    include_str!("../../../SKILL.md")
 }
 
 /// Generate MCP configuration JSON for Claude Code.
@@ -63,8 +84,9 @@ pub fn setup_instructions(tool: &str) -> Result<String> {
              Add this to your global OpenCode configuration file (~/.config/opencode/opencode.jsonc)\n\
              or to your project-scoped config file (opencode.jsonc) in the project root:\n\n\
              {}\n\n\
-             Note: OpenCode uses the standard `AGENTS.md` file for project-specific instructions.\n\
-             Traz will automatically sync your context via `AGENTS.md` active rules.",
+             Note: OpenCode reads `AGENTS.md` for project-specific agent instructions.\n\
+             Traz injects active sync rules into AGENTS.md so the agent always reads/writes memory correctly.\n\
+             Run `traz setup opencode` in your project directory to configure this automatically.",
             serde_json::to_string_pretty(&opencode_mcp_config())?
         )),
 
@@ -196,26 +218,67 @@ pub fn setup_instructions(tool: &str) -> Result<String> {
              name = \"traz\"\n\
              command = \"traz\"\n\
              args = [\"mcp\"]\n\n\
-             Tip: Codex automatically reads the server's 'instructions' during initialization.\n\
-             Traz will inject a context summary to immediately catch Codex up on your project."
+             Project instructions are read from AGENTS.md in the project root.\n\
+             Traz injects active sync rules into AGENTS.md automatically on setup.\n\
+             Codex reads the MCP server's 'instructions' field at initialization — traz uses\n\
+             this to immediately surface your project context."
             .to_string()),
 
         "agy" | "antigravity" => Ok("Antigravity (agy) MCP Integration\n\
              ──────────────────────────────────\n\
-             Run this command to connect traz:\n\n\
-               agy mcp add traz -- traz mcp\n\n\
-             Alternatively, add this to your agy workspace config manually:\n\n\
-               {\n\
-                 \"mcpServers\": {\n\
-                   \"traz\": {\n\
-                     \"command\": \"traz\",\n\
-                     \"args\": [\"mcp\"]\n\
-                   }\n\
+             Add this to your workspace config file (.agents/mcp_config.json) under your project root:\n\n\
+             {\n\
+               \"mcpServers\": {\n\
+                 \"traz\": {\n\
+                   \"command\": \"traz\",\n\
+                   \"args\": [\"mcp\"]\n\
                  }\n\
-               }\n\n\
+               }\n\
+             }\n\n\
+             Alternatively, you can add it globally to ~/.gemini/config/mcp_config.json.\n\n\
              Tip: Once connected, agy will automatically retrieve your traz checkpoint at\n\
-             the start of every chat session!"
+             the start of every chat session!\n\
+             Project rules will be read from .agents/rules/traz.md and skills from .agents/skills/traz-memory/."
             .to_string()),
+
+        "copilot" | "github-copilot" | "vscode" => Ok(
+            "GitHub Copilot / VS Code MCP Integration\n\
+             ─────────────────────────────────────────\n\
+             Add this to your .vscode/mcp.json (workspace) or User settings.json (global):\n\n\
+             {\n\
+               \"servers\": {\n\
+                 \"traz\": {\n\
+                   \"type\": \"stdio\",\n\
+                   \"command\": \"traz\",\n\
+                   \"args\": [\"mcp\"]\n\
+                 }\n\
+               }\n\
+             }\n\n\
+             Project instructions are read from .github/copilot-instructions.md.\n\
+             Traz injects active sync rules into this file automatically on setup.\n\n\
+             To enable in VS Code:\n\
+             • Install the GitHub Copilot extension (v1.300+)\n\
+             • Enable agent mode: enable MCP support in Copilot settings\n\
+             • Restart VS Code to activate the traz MCP server\n\
+             • In Copilot Chat, use @workspace or Agent mode to access traz tools"
+                .to_string()
+        ),
+
+        "aider" => Ok(
+            "Aider Integration\n\
+             ─────────────────\n\
+             Aider reads project conventions from CONVENTIONS.md in the project root.\n\
+             Traz injects active sync rules into CONVENTIONS.md automatically on setup.\n\n\
+             To use traz context with Aider, add the --read flag:\n\n\
+               aider --read CONVENTIONS.md\n\n\
+             Or add it to your .aider.conf.yml:\n\n\
+               read:\n\
+                 - CONVENTIONS.md\n\n\
+             Note: Aider does not natively support MCP. Traz memory is surfaced via\n\
+             CONVENTIONS.md context injection only. For full MCP support, use Claude Code,\n\
+             OpenCode, Codex, or Cursor instead."
+                .to_string()
+        ),
 
         _ => Ok("Generic MCP Integration\n\
              ───────────────────────\n\
@@ -223,7 +286,16 @@ pub fn setup_instructions(tool: &str) -> Result<String> {
                traz mcp\n\n\
              Or use the REST API:\n\n\
                traz serve\n\n\
-             Then point your tool at http://localhost:4000/events"
+             Then point your tool at http://localhost:4000/events\n\n\
+             Supported tools with dedicated setup:\n\
+               traz setup claude    → Claude Code\n\
+               traz setup cursor    → Cursor IDE\n\
+               traz setup codex     → OpenAI Codex CLI\n\
+               traz setup opencode  → OpenCode\n\
+               traz setup vscode    → VS Code + GitHub Copilot\n\
+               traz setup agy       → Antigravity (agy) / Gemini CLI\n\
+               traz setup aider     → Aider\n\
+               traz setup gemini    → Gemini CLI"
             .to_string()),
     }
 }

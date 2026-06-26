@@ -11,3 +11,4 @@ traz-core = { workspace = true }
 traz-db = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true }
