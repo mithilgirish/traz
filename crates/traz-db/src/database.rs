@@ -157,3 +157,96 @@ impl Db {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::SystemTime;
+
+    fn get_temp_db_path() -> (PathBuf, PathBuf) {
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("traz_database_test_{}", ts));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("traz.db");
+        (db_path, temp_dir)
+    }
+
+    #[test]
+    fn test_db_open_and_migrations() {
+        let (db_path, temp_dir) = get_temp_db_path();
+
+        // 1. Open the DB (which runs migrations)
+        let db = Db::open(&db_path).expect("Failed to open database");
+        assert_eq!(db.path(), db_path);
+
+        // Verify the database file exists
+        assert!(db_path.exists());
+
+        // On Unix, check that the file and parent directory have the correct permissions (0o600 and 0o700)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file_meta = fs::metadata(&db_path).unwrap();
+            let parent_meta = fs::metadata(&temp_dir).unwrap();
+            assert_eq!(file_meta.permissions().mode() & 0o777, 0o600);
+            assert_eq!(parent_meta.permissions().mode() & 0o777, 0o700);
+        }
+
+        // Verify tables are created by running simple query
+        {
+            let conn = db.lock_conn();
+            let table_count: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('events', 'event_embeddings')",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(table_count, 2);
+        }
+
+        // 2. Test FTS5 support call
+        let _has_fts5 = db.check_fts5_support();
+
+        // 3. Clean up
+        drop(db);
+        fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_db_migrate_idempotent() {
+        let (db_path, temp_dir) = get_temp_db_path();
+        
+        let db = Db::open(&db_path).unwrap();
+        
+        // Running migrate again shouldn't fail or corrupt data
+        let res = db.migrate();
+        assert!(res.is_ok());
+
+        // Test add_column_if_missing logic
+        {
+            let conn = db.lock_conn();
+            // Try to add an existing column - should not fail
+            Db::add_column_if_missing(&conn, "title");
+            
+            // Add a new column that's not there
+            Db::add_column_if_missing(&conn, "some_new_test_field");
+            
+            // Verify new column exists
+            let has_col: bool = conn
+                .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='some_new_test_field'")
+                .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, i64>(0)))
+                .map(|n| n > 0)
+                .unwrap_or(false);
+            assert!(has_col);
+        }
+
+        drop(db);
+        fs::remove_dir_all(temp_dir).unwrap();
+    }
+}
+

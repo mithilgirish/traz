@@ -78,7 +78,7 @@ pub fn create_router(db: Arc<Db>) -> Router {
 
     Router::new()
         .route("/events", post(create_event).get(list_events))
-        .route("/events/{id}", delete(delete_event))
+        .route("/events/:id", delete(delete_event))
         .route("/search", get(search_events))
         .route("/timeline", get(timeline))
         .route("/context", get(context_summary))
@@ -466,4 +466,206 @@ mod tests {
 
         cleanup_test_env(test_dir);
     }
+
+    #[tokio::test]
+    async fn test_api_stats() {
+        let (db, test_dir) = setup_test_env("stats");
+        let app = create_router(db.clone());
+
+        // Insert mock event
+        db.insert_event(&traz_core::Event::new(
+            "aider".to_string(),
+            "bug_fix".to_string(),
+            "Title".to_string(),
+            None,
+            None,
+            None,
+        )).unwrap();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/stats")
+                    .header(header::HOST, "localhost:3000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body_json["total_events"], 1);
+        let by_tool = body_json["by_tool"].as_array().unwrap();
+        assert_eq!(by_tool[0]["tool"], "aider");
+        assert_eq!(by_tool[0]["count"], 1);
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_api_delete_event() {
+        let (db, test_dir) = setup_test_env("delete");
+        let app = create_router(db.clone());
+
+        let id = db.insert_event(&traz_core::Event::new(
+            "cursor".to_string(),
+            "refactor".to_string(),
+            "Title".to_string(),
+            None,
+            None,
+            None,
+        )).unwrap();
+
+        // 1. Delete existing
+        let response = app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/events/{}", id))
+                    .header(header::HOST, "localhost:3000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body_json["status"], "deleted");
+        assert_eq!(body_json["id"], id);
+
+        // 2. Delete non-existent
+        let response_missing = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/events/{}", id))
+                    .header(header::HOST, "localhost:3000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response_missing.status(), StatusCode::NOT_FOUND);
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_api_search_events() {
+        let (db, test_dir) = setup_test_env("search");
+        let app = create_router(db.clone());
+
+        db.insert_event(&traz_core::Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Target search string".to_string(),
+            None,
+            None,
+            None,
+        )).unwrap();
+
+        // 1. Valid search
+        let response = app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/search?search=Target")
+                    .header(header::HOST, "localhost:3000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
+        let results: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["title"], "Target search string");
+
+        // 2. Missing search query param -> 400 Bad Request
+        let response_bad = app
+            .oneshot(
+                Request::builder()
+                    .uri("/search")
+                    .header(header::HOST, "localhost:3000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response_bad.status(), StatusCode::BAD_REQUEST);
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_api_create_invalid_payload() {
+        let (db, test_dir) = setup_test_env("invalid_payload");
+        let app = create_router(db);
+
+        // Missing required fields (e.g. type/event_type, title, tool)
+        let payload = serde_json::json!({
+            "summary": "This payload misses 'tool', 'type', and 'title'"
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/events")
+                    .header(header::HOST, "localhost:3000")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Axum's Json extractor returns 422 Unprocessable Entity for invalid structure
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_api_context_summary() {
+        let (db, test_dir) = setup_test_env("context");
+        let app = create_router(db.clone());
+
+        db.insert_event(&traz_core::Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Testing context endpoint".to_string(),
+            None,
+            None,
+            None,
+        )).unwrap();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/context?limit=5")
+                    .header(header::HOST, "localhost:3000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 10240).await.unwrap();
+        let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        
+        assert!(body_json["context"].as_str().unwrap().contains("Testing context endpoint"));
+        assert_eq!(body_json["format"], "markdown");
+
+        cleanup_test_env(test_dir);
+    }
 }
+
