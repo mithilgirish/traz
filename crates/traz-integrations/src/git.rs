@@ -300,3 +300,80 @@ pub fn install_hooks(repo_path: &Path) -> Result<()> {
     install_pre_push_hook(repo_path)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::process::Command;
+
+    #[test]
+    fn test_generate_hook_scripts() {
+        let post_commit = generate_post_commit_hook();
+        assert!(post_commit.contains("#!/bin/sh"));
+        assert!(post_commit.contains("traz capture"));
+
+        let post_checkout = generate_post_checkout_hook();
+        assert!(post_checkout.contains("#!/bin/sh"));
+        assert!(post_checkout.contains("traz add --tool git --event-type branch_switch"));
+
+        let pre_push = generate_pre_push_hook();
+        assert!(pre_push.contains("#!/bin/sh"));
+        assert!(pre_push.contains("traz add --tool git --event-type pre_push"));
+    }
+
+    #[test]
+    fn test_hook_installation_in_temp_git_repo() {
+        // Create unique temp directory
+        let rand_id = uuid::Uuid::new_v4().to_string();
+        let temp_dir = std::env::temp_dir().join(format!("traz_git_test_{}", rand_id));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // Initialize git repository
+        let init_status = Command::new("git")
+            .arg("init")
+            .current_dir(&temp_dir)
+            .status()
+            .unwrap();
+        assert!(init_status.success());
+
+        // Install hooks
+        let res = install_hooks(&temp_dir);
+        assert!(res.is_ok());
+
+        let hooks_dir = temp_dir.join(".git").join("hooks");
+        let post_commit_path = hooks_dir.join("post-commit");
+        let post_checkout_path = hooks_dir.join("post-checkout");
+        let pre_push_path = hooks_dir.join("pre-push");
+
+        assert!(post_commit_path.exists());
+        assert!(post_checkout_path.exists());
+        assert!(pre_push_path.exists());
+
+        // Verify content
+        let post_commit_content = fs::read_to_string(&post_commit_path).unwrap();
+        assert!(post_commit_content.contains("traz capture"));
+
+        // Test idempotency: installing again shouldn't duplicate or fail
+        let res_double = install_hooks(&temp_dir);
+        assert!(res_double.is_ok());
+
+        // Verify the file content didn't duplicate the hook body
+        let post_commit_content_2 = fs::read_to_string(&post_commit_path).unwrap();
+        assert_eq!(post_commit_content, post_commit_content_2);
+
+        // Test appending: if a hook already exists with other commands, we should append
+        fs::remove_file(&post_commit_path).unwrap();
+        fs::write(&post_commit_path, "#!/bin/sh\necho 'hello'\n").unwrap();
+
+        let res_append = install_post_commit_hook(&temp_dir);
+        assert!(res_append.is_ok());
+
+        let appended_content = fs::read_to_string(&post_commit_path).unwrap();
+        assert!(appended_content.contains("echo 'hello'"));
+        assert!(appended_content.contains("traz capture"));
+
+        // Clean up
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
+}

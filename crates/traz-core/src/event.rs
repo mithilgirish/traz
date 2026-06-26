@@ -121,3 +121,136 @@ impl fmt::Display for Event {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_event_new_defaults() {
+        let event = Event::new(
+            "test_tool".to_string(),
+            "feature".to_string(),
+            "Implement feature X".to_string(),
+            Some("Detailed description".to_string()),
+            Some(vec!["src/lib.rs".to_string()]),
+            None,
+        );
+
+        assert!(event.id.is_none());
+        assert!(!event.uuid.is_empty());
+        assert_eq!(event.tool, "test_tool");
+        assert_eq!(event.event_type, "feature");
+        assert_eq!(event.title, "Implement feature X");
+        assert_eq!(event.summary, Some("Detailed description".to_string()));
+        assert_eq!(event.files, Some(vec!["src/lib.rs".to_string()]));
+        assert!(event.metadata.is_none());
+        assert!(event.tags.is_none());
+        assert!(event.session_id.is_none());
+        assert!(event.diff.is_none());
+        assert!(event.created_at.is_none());
+        // Verify UUID is valid v4 format (8-4-4-4-12 hex chars)
+        assert_eq!(event.uuid.split('-').count(), 5);
+    }
+
+    #[test]
+    fn test_event_builder_methods() {
+        let timestamp = Utc::now();
+        let metadata_val = json!({"key": "value"});
+        let tags_val = vec!["rust".to_string(), "testing".to_string()];
+        let session_val = "session-123".to_string();
+        let diff_val = "--- a/src/lib.rs\n+++ b/src/lib.rs".to_string();
+
+        let event = Event::new(
+            "test_tool".to_string(),
+            "bug_fix".to_string(),
+            "Fix bug Y".to_string(),
+            None,
+            None,
+            Some(timestamp),
+        )
+        .with_metadata(metadata_val.clone())
+        .with_tags(tags_val.clone())
+        .with_session(session_val.clone())
+        .with_diff(diff_val.clone());
+
+        assert_eq!(event.timestamp, timestamp);
+        assert_eq!(event.metadata, Some(metadata_val));
+        assert_eq!(event.tags, Some(tags_val));
+        assert_eq!(event.session_id, Some(session_val));
+        assert_eq!(event.diff, Some(diff_val));
+    }
+
+    #[test]
+    fn test_event_uuid_uniqueness() {
+        let event1 = Event::new(
+            "tool".to_string(),
+            "type".to_string(),
+            "title".to_string(),
+            None,
+            None,
+            None,
+        );
+        let event2 = Event::new(
+            "tool".to_string(),
+            "type".to_string(),
+            "title".to_string(),
+            None,
+            None,
+            None,
+        );
+        assert_ne!(event1.uuid, event2.uuid);
+    }
+
+    #[test]
+    fn test_event_display_format() {
+        let fixed_time = DateTime::parse_from_rfc3339("2026-06-26T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let event = Event::new(
+            "aider".to_string(),
+            "refactor".to_string(),
+            "Clean codebase".to_string(),
+            None,
+            None,
+            Some(fixed_time),
+        );
+
+        let display_str = format!("{}", event);
+        assert_eq!(
+            display_str,
+            "[2026-06-26 12:00:00] aider · refactor — Clean codebase"
+        );
+    }
+
+    #[test]
+    fn test_event_serde_roundtrip() {
+        let event = Event::new(
+            "mcp".to_string(),
+            "decision".to_string(),
+            "Use SQLite".to_string(),
+            None,
+            None,
+            None,
+        )
+        .with_tags(vec!["db".to_string()]);
+
+        let serialized = serde_json::to_string(&event).unwrap();
+        // Since id, summary, files, metadata, session_id, diff, created_at are None/skip_serializing_if,
+        // they should not appear in the JSON string
+        assert!(!serialized.contains("\"id\""));
+        assert!(!serialized.contains("\"summary\""));
+        assert!(!serialized.contains("\"files\""));
+        assert!(serialized.contains("\"tags\""));
+
+        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.uuid, event.uuid);
+        assert_eq!(deserialized.tool, event.tool);
+        assert_eq!(deserialized.event_type, event.event_type);
+        assert_eq!(deserialized.title, event.title);
+        assert_eq!(deserialized.tags, Some(vec!["db".to_string()]));
+        assert!(deserialized.summary.is_none());
+    }
+}

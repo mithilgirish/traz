@@ -269,3 +269,141 @@ pub fn handle_input(app: &mut App, key: KeyEvent) -> anyhow::Result<bool> {
 
     Ok(false)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{App, AppMode};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::fs;
+    use std::time::SystemTime;
+    use traz_db::Db;
+
+    fn setup_test_app(test_name: &str) -> (App, std::path::PathBuf) {
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let unique_dir =
+            std::env::temp_dir().join(format!("traz_tui_input_test_{}_{}", test_name, ts));
+        let _ = fs::create_dir_all(&unique_dir);
+        let db_path = unique_dir.join("traz.db");
+        let db = Db::open(&db_path).unwrap();
+
+        let event1 = traz_core::Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Title 1".to_string(),
+            None,
+            None,
+            None,
+        );
+        let event2 = traz_core::Event::new(
+            "aider".to_string(),
+            "bug_fix".to_string(),
+            "Title 2".to_string(),
+            None,
+            None,
+            None,
+        );
+
+        let app = App::new(db, vec![event1, event2], unique_dir.join("theme.json"));
+        (app, unique_dir)
+    }
+
+    fn press(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::empty())
+    }
+
+    #[test]
+    fn test_handle_input_exit() {
+        let (mut app, test_dir) = setup_test_app("exit");
+
+        // Esc or 'q' in List mode should exit
+        assert!(handle_input(&mut app, press(KeyCode::Char('q'))).unwrap());
+        assert!(handle_input(&mut app, press(KeyCode::Esc)).unwrap());
+
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_handle_input_navigation() {
+        let (mut mut_app, test_dir) = setup_test_app("nav");
+
+        // Starts at index 0
+        assert_eq!(mut_app.selected, 0);
+
+        // Press down
+        handle_input(&mut mut_app, press(KeyCode::Char('j'))).unwrap();
+        assert_eq!(mut_app.selected, 1);
+
+        // Press down again (saturates at length - 1, which is 1)
+        handle_input(&mut mut_app, press(KeyCode::Down)).unwrap();
+        assert_eq!(mut_app.selected, 1);
+
+        // Press up
+        handle_input(&mut mut_app, press(KeyCode::Char('k'))).unwrap();
+        assert_eq!(mut_app.selected, 0);
+
+        // Press up again (saturates at 0)
+        handle_input(&mut mut_app, press(KeyCode::Up)).unwrap();
+        assert_eq!(mut_app.selected, 0);
+
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_handle_input_search_mode() {
+        let (mut app, test_dir) = setup_test_app("search");
+
+        // Press '/' to search
+        handle_input(&mut app, press(KeyCode::Char('/'))).unwrap();
+        assert_eq!(app.mode, AppMode::Search);
+        assert_eq!(app.search_query, "");
+
+        // Type characters
+        handle_input(&mut app, press(KeyCode::Char('a'))).unwrap();
+        assert_eq!(app.search_query, "a");
+
+        handle_input(&mut app, press(KeyCode::Char('b'))).unwrap();
+        assert_eq!(app.search_query, "ab");
+
+        // Backspace
+        handle_input(&mut app, press(KeyCode::Backspace)).unwrap();
+        assert_eq!(app.search_query, "a");
+
+        // Press Enter to confirm search query and return to list mode
+        handle_input(&mut app, press(KeyCode::Enter)).unwrap();
+        assert_eq!(app.mode, AppMode::List);
+        assert_eq!(app.search_query, "a");
+
+        // Esc clears search query and returns to list mode
+        handle_input(&mut app, press(KeyCode::Char('/'))).unwrap();
+        assert_eq!(app.mode, AppMode::Search);
+        handle_input(&mut app, press(KeyCode::Esc)).unwrap();
+        assert_eq!(app.mode, AppMode::List);
+        assert_eq!(app.search_query, "");
+
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_handle_input_settings_mode() {
+        let (mut app, test_dir) = setup_test_app("settings");
+
+        // Press 's' to enter settings
+        handle_input(&mut app, press(KeyCode::Char('s'))).unwrap();
+        assert_eq!(app.mode, AppMode::Settings);
+        assert_eq!(app.selected_setting, 0);
+
+        // Select next setting
+        handle_input(&mut app, press(KeyCode::Char('j'))).unwrap();
+        assert_eq!(app.selected_setting, 1);
+
+        // Press Esc to exit settings
+        handle_input(&mut app, press(KeyCode::Esc)).unwrap();
+        assert_eq!(app.mode, AppMode::List);
+
+        let _ = fs::remove_dir_all(test_dir);
+    }
+}

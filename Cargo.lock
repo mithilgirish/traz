@@ -4054,6 +4054,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tower",
  "tower-http 0.5.2",
  "tracing",
  "traz-core",
@@ -4106,6 +4107,7 @@ dependencies = [
  "serde_json",
  "traz-core",
  "traz-db",
+ "uuid",
 ]
 
 [[package]]

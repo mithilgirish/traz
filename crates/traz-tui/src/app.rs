@@ -127,3 +127,123 @@ impl App {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{Duration, SystemTime};
+
+    fn setup_test_db(test_name: &str) -> (Db, std::path::PathBuf) {
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let unique_dir =
+            std::env::temp_dir().join(format!("traz_tui_app_test_{}_{}", test_name, ts));
+        let _ = fs::create_dir_all(&unique_dir);
+        let db_path = unique_dir.join("traz.db");
+        let db = Db::open(&db_path).unwrap();
+        (db, unique_dir)
+    }
+
+    #[test]
+    fn test_app_initialization() {
+        let (db, test_dir) = setup_test_db("init");
+        let custom_theme = test_dir.join("theme.json");
+
+        let event1 = traz_core::Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Title 1".to_string(),
+            None,
+            None,
+            None,
+        );
+        let app = App::new(db, vec![event1.clone()], custom_theme.clone());
+
+        assert_eq!(app.all_events.len(), 1);
+        assert_eq!(app.events.len(), 1);
+        assert_eq!(app.selected, 0);
+        assert_eq!(app.mode, AppMode::List);
+        assert_eq!(app.search_query, "");
+        assert!(app.status_message.is_none());
+        assert!(app.is_dark_mode);
+        assert_eq!(app.theme_option, ThemeOption::Dark);
+        assert_eq!(app.custom_theme_path, custom_theme);
+
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_app_status_message_lifecycle() {
+        let (db, test_dir) = setup_test_db("status");
+        let mut app = App::new(db, vec![], test_dir.join("theme.json"));
+
+        app.set_status("Hello status");
+        assert_eq!(app.status_message, Some("Hello status".to_string()));
+        assert!(app.status_message_time.is_some());
+
+        // Call check_status_message immediately - shouldn't clear yet
+        app.check_status_message();
+        assert_eq!(app.status_message, Some("Hello status".to_string()));
+
+        // Simulate passage of time by mutating the status time backwards by 4 seconds
+        app.status_message_time = Some(Instant::now() - Duration::from_secs(4));
+        app.check_status_message();
+
+        // Now it should be cleared
+        assert!(app.status_message.is_none());
+        assert!(app.status_message_time.is_none());
+
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_app_filtering_and_reloading() {
+        let (db, test_dir) = setup_test_db("filter");
+
+        // Insert events directly to DB so reloading pulls them
+        let e1 = traz_core::Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Compile error solved".to_string(),
+            None,
+            None,
+            None,
+        );
+        let e2 = traz_core::Event::new(
+            "aider".to_string(),
+            "bug_fix".to_string(),
+            "Unrelated item".to_string(),
+            None,
+            None,
+            None,
+        );
+        db.insert_event(&e1).unwrap();
+        db.insert_event(&e2).unwrap();
+
+        let mut app = App::new(
+            db,
+            vec![e1.clone(), e2.clone()],
+            test_dir.join("theme.json"),
+        );
+
+        // 1. Keyword filter
+        app.search_query = "error".to_string();
+        app.filter_events();
+        assert_eq!(app.events.len(), 1);
+        assert_eq!(app.events[0].title, "Compile error solved");
+
+        // 2. Clear query
+        app.search_query.clear();
+        app.filter_events();
+        assert_eq!(app.events.len(), 2);
+
+        // 3. Reload from DB
+        app.reload_events().unwrap();
+        assert_eq!(app.all_events.len(), 2);
+
+        let _ = fs::remove_dir_all(test_dir);
+    }
+}

@@ -119,3 +119,81 @@ impl TrazConfig {
         self.db_path.parent().unwrap_or(Path::new("."))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::fs;
+    use std::time::SystemTime;
+
+    fn get_unique_temp_db_path(name: &str) -> (PathBuf, PathBuf) {
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let unique_dir = std::env::temp_dir().join(format!("traz_config_test_{}_{}", name, ts));
+        let _ = fs::create_dir_all(&unique_dir);
+        let db_path = unique_dir.join("traz.db");
+        (db_path, unique_dir)
+    }
+
+    #[test]
+    fn test_config_default_values() {
+        let db_path = PathBuf::from("/tmp/traz.db");
+        let config = TrazConfig::default_with_paths(db_path.clone());
+        assert_eq!(config.db_path, db_path);
+        assert_eq!(config.api_port, 4000);
+        assert!(!config.embeddings_enabled);
+        assert!(config.embeddings_model_path.is_none());
+    }
+
+    #[test]
+    fn test_config_env_db_override() {
+        let (db_path, test_dir) = get_unique_temp_db_path("env_db");
+        unsafe {
+            env::set_var("TRAZ_DB", &db_path);
+        }
+
+        let config = TrazConfig::resolve();
+        assert_eq!(config.db_path, db_path);
+
+        unsafe {
+            env::remove_var("TRAZ_DB");
+        }
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_config_env_port_override() {
+        let (db_path, test_dir) = get_unique_temp_db_path("env_port");
+        unsafe {
+            env::set_var("TRAZ_PORT", "8888");
+        }
+
+        let config = TrazConfig::load_or_default(db_path);
+        assert_eq!(config.api_port, 8888);
+
+        unsafe {
+            env::remove_var("TRAZ_PORT");
+        }
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_config_save_and_load() {
+        let (db_path, test_dir) = get_unique_temp_db_path("save_load");
+
+        let mut config = TrazConfig::default_with_paths(db_path.clone());
+        config.api_port = 5555;
+        config.embeddings_enabled = true;
+        config.save().unwrap();
+
+        // Load it back and verify it matches the saved properties
+        let loaded = TrazConfig::load_or_default(db_path);
+        assert_eq!(loaded.api_port, 5555);
+        assert!(loaded.embeddings_enabled);
+
+        let _ = fs::remove_dir_all(test_dir);
+    }
+}

@@ -661,3 +661,427 @@ fn tool_ok(text: &str) -> Value {
 fn tool_err(text: &str) -> Value {
     json!({ "isError": true, "content": [{ "type": "text", "text": text }] })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::SystemTime;
+
+    fn setup_test_env(test_name: &str) -> (Db, std::path::PathBuf) {
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let unique_dir = std::env::temp_dir().join(format!("traz_mcp_test_{}_{}", test_name, ts));
+        let _ = std::fs::create_dir_all(&unique_dir);
+        let db_path = unique_dir.join("traz.db");
+        let db = Db::open(&db_path).unwrap();
+        (db, unique_dir)
+    }
+
+    fn cleanup_test_env(unique_dir: std::path::PathBuf) {
+        let _ = std::fs::remove_dir_all(unique_dir);
+    }
+
+    #[test]
+    fn test_mcp_build_tool_definitions() {
+        let stable_tools = build_tool_definitions(false);
+        let stable_arr = stable_tools.as_array().unwrap();
+
+        // Assert that stable tools are returned, but no experimental ones
+        assert!(stable_arr.iter().any(|t| t["name"] == "traz_recent"));
+        assert!(stable_arr.iter().any(|t| t["name"] == "traz_add"));
+        assert!(stable_arr.iter().any(|t| t["name"] == "traz_search"));
+        assert!(!stable_arr.iter().any(|t| t["name"] == "traz_timeline"));
+
+        let experimental_tools = build_tool_definitions(true);
+        let experimental_arr = experimental_tools.as_array().unwrap();
+        assert!(
+            experimental_arr
+                .iter()
+                .any(|t| t["name"] == "traz_timeline")
+        );
+    }
+
+    #[test]
+    fn test_handle_tool_call_traz_add_and_recent() {
+        let (db, test_dir) = setup_test_env("add_recent");
+
+        // 1. Call traz_add
+        let add_payload = json!({
+            "params": {
+                "name": "traz_add",
+                "arguments": {
+                    "tool": "cursor",
+                    "type": "feature",
+                    "title": "Implement active synchronization",
+                    "summary": "Added active timeline hooks",
+                    "files": ["crates/traz-cli/src/main.rs"]
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &add_payload, false);
+        assert!(res.get("isError").is_none());
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Event created with ID"));
+
+        // 2. Call traz_recent (format = dense)
+        let recent_payload = json!({
+            "params": {
+                "name": "traz_recent",
+                "arguments": {
+                    "limit": 10,
+                    "format": "dense"
+                }
+            }
+        });
+        let res_recent = handle_tool_call(&db, &recent_payload, false);
+        let text_recent = res_recent["content"][0]["text"].as_str().unwrap();
+        assert!(text_recent.contains("cursor"));
+        assert!(text_recent.contains("ft")); // abbreviated type for feature
+        assert!(text_recent.contains("Implement active synchronization"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_traz_search() {
+        let (db, test_dir) = setup_test_env("search");
+
+        // Seed with event
+        let event = Event::new(
+            "aider".to_string(),
+            "bug_fix".to_string(),
+            "Resolved panic in parser".to_string(),
+            Some("Fixed a crash when input was empty".to_string()),
+            None,
+            None,
+        );
+        db.insert_event(&event).unwrap();
+
+        let search_payload = json!({
+            "params": {
+                "name": "traz_search",
+                "arguments": {
+                    "query": "panic"
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &search_payload, false);
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Resolved panic in parser"));
+        assert!(text.contains("aider"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_traz_stats() {
+        let (db, test_dir) = setup_test_env("stats");
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "T1".to_string(),
+            None,
+            None,
+            None,
+        );
+        db.insert_event(&event).unwrap();
+
+        let stats_payload = json!({
+            "params": {
+                "name": "traz_stats",
+                "arguments": {}
+            }
+        });
+
+        let res = handle_tool_call(&db, &stats_payload, false);
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Total Events: 1"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_traz_checkpoint() {
+        let (db, test_dir) = setup_test_env("checkpoint");
+
+        let checkpoint_payload = json!({
+            "params": {
+                "name": "traz_checkpoint",
+                "arguments": {
+                    "summary": "Completed auth feature. All tests pass."
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &checkpoint_payload, false);
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Checkpoint created with ID"));
+
+        // Verify the database has the checkpoint event
+        let events = db.get_recent_events(5).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "checkpoint");
+        assert_eq!(events[0].title, "Session Checkpoint");
+        assert_eq!(
+            events[0].summary.as_deref(),
+            Some("Completed auth feature. All tests pass.")
+        );
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_unknown_and_experimental() {
+        let (db, test_dir) = setup_test_env("unknown_experimental");
+
+        // 1. Unknown tool
+        let unknown_payload = json!({
+            "params": {
+                "name": "traz_unknown_tool",
+                "arguments": {}
+            }
+        });
+        let res = handle_tool_call(&db, &unknown_payload, false);
+        assert_eq!(res["isError"], true);
+
+        // 2. Experimental tool with experimental = false
+        let exp_payload = json!({
+            "params": {
+                "name": "traz_timeline",
+                "arguments": {}
+            }
+        });
+        let res_exp_false = handle_tool_call(&db, &exp_payload, false);
+        assert_eq!(res_exp_false["isError"], true);
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_traz_context() {
+        let (db, test_dir) = setup_test_env("context");
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "MCP context testing".to_string(),
+            None,
+            None,
+            None,
+        );
+        db.insert_event(&event).unwrap();
+
+        let context_payload = json!({
+            "params": {
+                "name": "traz_context",
+                "arguments": {
+                    "limit": 5,
+                    "format": "markdown"
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &context_payload, false);
+        assert!(res.get("isError").is_none());
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("MCP context testing"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_traz_show_and_diff() {
+        let (db, test_dir) = setup_test_env("show_diff");
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Testing show and diff".to_string(),
+            None,
+            None,
+            None,
+        )
+        .with_diff("--- a/f\n+++ b/f\n+hello".to_string());
+
+        let id = db.insert_event(&event).unwrap();
+
+        // 1. traz_show
+        let show_payload = json!({
+            "params": {
+                "name": "traz_show",
+                "arguments": {
+                    "id": id
+                }
+            }
+        });
+        let res_show = handle_tool_call(&db, &show_payload, false);
+        assert!(res_show.get("isError").is_none());
+        let text_show = res_show["content"][0]["text"].as_str().unwrap();
+        assert!(text_show.contains("Testing show and diff"));
+
+        // 2. traz_diff
+        let diff_payload = json!({
+            "params": {
+                "name": "traz_diff",
+                "arguments": {
+                    "id": id
+                }
+            }
+        });
+        let res_diff = handle_tool_call(&db, &diff_payload, false);
+        assert!(res_diff.get("isError").is_none());
+        let text_diff = res_diff["content"][0]["text"].as_str().unwrap();
+        assert!(text_diff.contains("+hello"));
+
+        // 3. traz_show missing event -> isError=true
+        let show_missing = json!({
+            "params": {
+                "name": "traz_show",
+                "arguments": {
+                    "id": 99999
+                }
+            }
+        });
+        let res_show_missing = handle_tool_call(&db, &show_missing, false);
+        assert_eq!(res_show_missing["isError"], true);
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_traz_recap() {
+        let (db, test_dir) = setup_test_env("recap");
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "bug_fix".to_string(),
+            "Recap item test".to_string(),
+            None,
+            None,
+            None,
+        );
+        db.insert_event(&event).unwrap();
+
+        let recap_payload = json!({
+            "params": {
+                "name": "traz_recap",
+                "arguments": {
+                    "hours": 12,
+                    "format": "markdown"
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &recap_payload, false);
+        assert!(res.get("isError").is_none());
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Recap"));
+        assert!(text.contains("Recap item test"));
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_experimental_enabled() {
+        let (db, test_dir) = setup_test_env("experimental");
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Exp event".to_string(),
+            None,
+            None,
+            None,
+        );
+        let id = db.insert_event(&event).unwrap();
+
+        // 1. traz_timeline
+        let timeline_payload = json!({
+            "params": {
+                "name": "traz_timeline",
+                "arguments": {}
+            }
+        });
+        let res_timeline = handle_tool_call(&db, &timeline_payload, true);
+        assert!(res_timeline.get("isError").is_none());
+        assert!(
+            res_timeline["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Exp event")
+        );
+
+        // 2. traz_delete
+        let delete_payload = json!({
+            "params": {
+                "name": "traz_delete",
+                "arguments": {
+                    "id": id
+                }
+            }
+        });
+        let res_delete = handle_tool_call(&db, &delete_payload, true);
+        assert!(res_delete.get("isError").is_none());
+        assert!(
+            res_delete["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("deleted")
+        );
+
+        // Verify it was deleted
+        assert!(db.get_event(id).unwrap().is_none());
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[test]
+    fn test_handle_tool_call_bad_arguments() {
+        let (db, test_dir) = setup_test_env("bad_arguments");
+
+        // 1. traz_search missing query
+        let bad_search = json!({
+            "params": {
+                "name": "traz_search",
+                "arguments": {}
+            }
+        });
+        let res_search = handle_tool_call(&db, &bad_search, false);
+        assert_eq!(res_search["isError"], true);
+        assert!(
+            res_search["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Missing required argument")
+        );
+
+        // 2. traz_show missing id
+        let bad_show = json!({
+            "params": {
+                "name": "traz_show",
+                "arguments": {}
+            }
+        });
+        let res_show = handle_tool_call(&db, &bad_show, false);
+        assert_eq!(res_show["isError"], true);
+
+        // 3. traz_diff bad id format
+        let bad_diff = json!({
+            "params": {
+                "name": "traz_diff",
+                "arguments": {
+                    "id": "not_an_integer"
+                }
+            }
+        });
+        let res_diff = handle_tool_call(&db, &bad_diff, false);
+        assert_eq!(res_diff["isError"], true);
+
+        cleanup_test_env(test_dir);
+    }
+}

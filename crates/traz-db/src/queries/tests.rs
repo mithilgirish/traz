@@ -436,4 +436,171 @@ mod tests {
         assert!(!results_css.is_empty());
         assert_eq!(results_css[0].0.id, Some(id2));
     }
+
+    #[test]
+    fn test_db_concurrency() {
+        use std::sync::Arc;
+        use std::thread;
+
+        // Create a real database file in a temp directory so separate connections
+        // actually hit the filesystem concurrently
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let unique_dir = std::env::temp_dir().join(format!("traz_db_concurrency_{}", ts));
+        let _ = std::fs::create_dir_all(&unique_dir);
+        let db_path = unique_dir.join("traz.db");
+
+        // Initialize the DB file by opening it once
+        {
+            let _db = Db::open(&db_path).unwrap();
+        }
+
+        // Spawn multiple threads, each opening their own Connection to the same db_path,
+        // and concurrently calling insert_event
+        let db_path_arc = Arc::new(db_path.clone());
+        let mut handles = vec![];
+
+        for i in 0..10 {
+            let path_clone = Arc::clone(&db_path_arc);
+            let handle = thread::spawn(move || {
+                let db = Db::open(&path_clone).unwrap();
+                let event = sample_event("cursor", "feature", &format!("Thread {} event", i));
+                db.insert_event(&event).unwrap();
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all threads to finish
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Verify all 10 events were written successfully
+        let db = Db::open(&db_path).unwrap();
+        let count = db.count_events().unwrap();
+        assert_eq!(count, 10);
+
+        let _ = std::fs::remove_dir_all(unique_dir);
+    }
+
+    #[test]
+    fn test_delete_events_after() {
+        let db = test_db();
+        let id1 = db
+            .insert_event(&sample_event("cursor", "feature", "First event"))
+            .unwrap();
+        let id2 = db
+            .insert_event(&sample_event("cursor", "feature", "Second event"))
+            .unwrap();
+        let id3 = db
+            .insert_event(&sample_event("cursor", "feature", "Third event"))
+            .unwrap();
+
+        let affected = db.delete_events_after(id1).unwrap();
+        assert_eq!(affected, 2);
+
+        // Verify id1 still exists but id2 and id3 are gone
+        assert!(db.get_event(id1).unwrap().is_some());
+        assert!(db.get_event(id2).unwrap().is_none());
+        assert!(db.get_event(id3).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_compress_events() {
+        let db = test_db();
+
+        // 1. Insert an old event (e.g. 5 days ago)
+        let mut old_event = sample_event("cursor", "bug_fix", "Old bug fix");
+        let five_days_ago = chrono::Utc::now() - chrono::Duration::days(5);
+        old_event.timestamp = five_days_ago;
+        let old_id = db.insert_event(&old_event).unwrap();
+
+        // 2. Insert a new event (e.g. just now)
+        let new_event = sample_event("cursor", "feature", "New feature");
+        let new_id = db.insert_event(&new_event).unwrap();
+
+        // 3. Compress events older than 3 days
+        let (count, epoch_id) = db
+            .compress_events(3, "Summary of older epoch".to_string())
+            .unwrap();
+
+        assert_eq!(count, 1);
+        assert!(epoch_id > 0);
+
+        // Verify old event was deleted
+        assert!(db.get_event(old_id).unwrap().is_none());
+
+        // Verify new event still exists
+        assert!(db.get_event(new_id).unwrap().is_some());
+
+        // Verify epoch event was created
+        let epoch_event = db.get_event(epoch_id).unwrap().unwrap();
+        assert_eq!(epoch_event.event_type, "epoch");
+        assert_eq!(
+            epoch_event.summary,
+            Some("Summary of older epoch".to_string())
+        );
+    }
+
+    #[test]
+    fn test_hybrid_search_without_embeddings() {
+        let db = test_db();
+        // Since test_db has embeddings disabled by default config,
+        // hybrid_search should fallback to purely keyword search results
+        let _id1 = db
+            .insert_event(&sample_event("claude", "decision", "Rust is great"))
+            .unwrap();
+        let id2 = db
+            .insert_event(&sample_event("claude", "bug_fix", "Fix compilation error"))
+            .unwrap();
+
+        let results = db
+            .hybrid_search(
+                "compilation",
+                &crate::queries::read::SearchFilters::default(),
+                10,
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.id, Some(id2));
+    }
+
+    #[test]
+    fn test_get_context_optimized_budget() {
+        let db = test_db();
+        db.insert_event(&sample_event("cursor", "feature", "Event A"))
+            .unwrap();
+        db.insert_event(&sample_event("cursor", "feature", "Event B"))
+            .unwrap();
+        db.insert_event(&sample_event("cursor", "feature", "Event C"))
+            .unwrap();
+
+        // 1. Markdown Format - Unlimited budget
+        let markdown_ctx = db
+            .get_context_optimized(None, 10, traz_core::OutputFormat::Markdown, None, false)
+            .unwrap();
+        assert!(markdown_ctx.contains("# traz — Engineering Context Summary"));
+        assert!(markdown_ctx.contains("Event A"));
+        assert!(markdown_ctx.contains("Event B"));
+        assert!(markdown_ctx.contains("Event C"));
+
+        // 2. Dense Format - Unlimited budget
+        let dense_ctx = db
+            .get_context_optimized(None, 10, traz_core::OutputFormat::Dense, None, false)
+            .unwrap();
+        assert!(dense_ctx.contains("traz|events:3"));
+        assert!(dense_ctx.contains("Event A"));
+
+        // 3. Budget Truncation (strict low token budget)
+        // With a budget of 20 tokens, only the header should fit, truncating the rest
+        let truncated_ctx = db
+            .get_context_optimized(None, 10, traz_core::OutputFormat::Markdown, Some(20), false)
+            .unwrap();
+        assert!(traz_core::estimate_tokens(&truncated_ctx) <= 35);
+        assert!(truncated_ctx.contains("# traz"));
+        assert!(!truncated_ctx.contains("Event A")); // Should be truncated
+    }
 }
