@@ -318,10 +318,87 @@ mod tests {
     }
 
     #[test]
-    fn test_setup_instructions_opencode() {
-        let instructions = setup_instructions("opencode").unwrap();
-        assert!(instructions.contains("OpenCode MCP Integration"));
-        assert!(instructions.contains("opencode.jsonc"));
-        assert!(instructions.contains("AGENTS.md"));
+    fn test_claude_mcp_config() {
+        let config = claude_mcp_config();
+        assert!(config.get("mcpServers").is_some());
+        assert!(config["mcpServers"].get("traz").is_some());
+        assert_eq!(config["mcpServers"]["traz"]["command"], "traz");
+        assert_eq!(config["mcpServers"]["traz"]["args"], serde_json::json!(["mcp"]));
+    }
+
+    #[test]
+    fn test_cursor_mcp_config() {
+        let config = cursor_mcp_config();
+        assert!(config.get("mcpServers").is_some());
+        assert!(config["mcpServers"].get("traz").is_some());
+        assert_eq!(config["mcpServers"]["traz"]["command"], "traz");
+        assert_eq!(config["mcpServers"]["traz"]["args"], serde_json::json!(["mcp"]));
+    }
+
+    #[test]
+    fn test_setup_instructions_all_platforms() {
+        let platforms = vec![
+            "opencode",
+            "claude",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "aider",
+            "agy",
+            "antigravity",
+            "gemini",
+            "gemini-cli",
+            "unknown",
+        ];
+
+        for platform in platforms {
+            let res = setup_instructions(platform);
+            assert!(res.is_ok());
+            let instructions = res.unwrap();
+            assert!(!instructions.trim().is_empty());
+            
+            // Check key phrases based on target platform
+            match platform {
+                "opencode" => {
+                    assert!(instructions.contains("OpenCode"));
+                    assert!(instructions.contains("opencode.jsonc"));
+                }
+                "claude" | "claude-code" => {
+                    assert!(instructions.contains("Claude Code"));
+                    assert!(instructions.contains("claude_desktop_config.json"));
+                }
+                "cursor" => {
+                    assert!(instructions.contains("Cursor"));
+                    assert!(instructions.contains("Settings"));
+                }
+                "vscode" => {
+                    assert!(instructions.contains("VS Code"));
+                    assert!(instructions.contains("Copilot"));
+                }
+                "aider" => {
+                    assert!(instructions.contains("Aider"));
+                    assert!(instructions.contains("CONVENTIONS.md"));
+                }
+                "agy" | "antigravity" => {
+                    assert!(instructions.contains("Antigravity"));
+                    assert!(instructions.contains(".agents"));
+                }
+                "gemini" | "gemini-cli" => {
+                    assert!(instructions.contains("Gemini"));
+                    assert!(instructions.contains("settings.json"));
+                }
+                _ => {
+                    assert!(instructions.contains("Generic MCP Integration"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_active_sync_prompt() {
+        let prompt = active_sync_prompt();
+        assert!(prompt.contains("Traz — Developer Memory Layer"));
+        assert!(prompt.contains("traz_recent"));
+        assert!(prompt.contains("traz_add"));
     }
 }
