@@ -78,8 +78,15 @@ pub async fn handle_hook(
     let data_dir = db.path().parent().unwrap_or_else(|| Path::new("."));
 
     // Phase 2: Worktree Session Isolation
-    let branch_name = crate::git::get_current_branch().unwrap_or_else(|_| "default".to_string());
-    let safe_branch_name = branch_name.replace(|c: char| !c.is_alphanumeric(), "_");
+    let branch_name = crate::git::get_current_branch()
+        .ok()
+        .filter(|b| !b.trim().is_empty())
+        .unwrap_or_else(|| "default".to_string());
+    let safe_branch_name: String = branch_name
+        .as_bytes()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
 
     let sessions_dir = data_dir.join("sessions");
     let _ = fs::create_dir_all(&sessions_dir);
@@ -335,9 +342,15 @@ mod tests {
         // Pre-populate active_session_default.json with another tool active recently
         let sessions_dir = test_dir.join("sessions");
         let _ = std::fs::create_dir_all(&sessions_dir);
-        let branch_name =
-            crate::git::get_current_branch().unwrap_or_else(|_| "default".to_string());
-        let safe_branch_name = branch_name.replace(|c: char| !c.is_alphanumeric(), "_");
+        let branch_name = crate::git::get_current_branch()
+            .ok()
+            .filter(|b| !b.trim().is_empty())
+            .unwrap_or_else(|| "default".to_string());
+        let safe_branch_name: String = branch_name
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         let active_session_path =
             sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
         let now = SystemTime::now()
@@ -395,9 +408,15 @@ mod tests {
         // Pre-populate active_session_default.json with another tool active long ago
         let sessions_dir = test_dir.join("sessions");
         let _ = std::fs::create_dir_all(&sessions_dir);
-        let branch_name =
-            crate::git::get_current_branch().unwrap_or_else(|_| "default".to_string());
-        let safe_branch_name = branch_name.replace(|c: char| !c.is_alphanumeric(), "_");
+        let branch_name = crate::git::get_current_branch()
+            .ok()
+            .filter(|b| !b.trim().is_empty())
+            .unwrap_or_else(|| "default".to_string());
+        let safe_branch_name: String = branch_name
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         let active_session_path =
             sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
         let now = SystemTime::now()

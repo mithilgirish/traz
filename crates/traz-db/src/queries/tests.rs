@@ -441,7 +441,7 @@ mod tests {
 
         // Search for something related to auth
         let results = db
-            .semantic_search("login database", 10, None)
+            .semantic_search("login database", 10, Some(&["main"]))
             .await
             .unwrap();
 
@@ -452,7 +452,7 @@ mod tests {
 
         // Search for something related to styling
         let results_css = db
-            .semantic_search("css flexbox layout alignment", 10, None)
+            .semantic_search("css flexbox layout alignment", 10, Some(&["main"]))
             .await
             .unwrap();
         assert!(!results_css.is_empty());

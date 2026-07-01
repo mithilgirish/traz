@@ -129,9 +129,11 @@ impl Db {
         // Step 3: Create indexes (safe now that all columns exist)
         self.conn
             .execute_batch(
-                "CREATE INDEX IF NOT EXISTS idx_events_tool      ON events(tool);
-             CREATE INDEX IF NOT EXISTS idx_events_type      ON events(type);
-             CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);",
+                "CREATE INDEX IF NOT EXISTS idx_events_tool         ON events(tool);
+                 CREATE INDEX IF NOT EXISTS idx_events_type         ON events(type);
+                 CREATE INDEX IF NOT EXISTS idx_events_timestamp    ON events(timestamp);
+                 CREATE INDEX IF NOT EXISTS idx_events_branch_name  ON events(branch_name);
+                 CREATE INDEX IF NOT EXISTS idx_events_is_checkpoint ON events(is_checkpoint);",
             )
             .await?;
 

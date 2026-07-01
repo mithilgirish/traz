@@ -605,9 +605,7 @@ async fn run_command(
                         agent_id, id
                     ));
                 }
-                Err(e) => {
-                    eprintln!("Failed to rollup subagent memory: {}", e);
-                }
+                Err(e) => return Err(e),
             }
         }
 

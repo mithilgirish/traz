@@ -332,6 +332,8 @@ impl Db {
         );
         let uuid = dummy.uuid;
 
+        let full_text = format!("{} {}", title, summary);
+
         tx.execute(
             "INSERT INTO events (uuid, tool, type, title, summary, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp) 
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -347,6 +349,48 @@ impl Db {
                 0
             }
         };
+
+        let embedding_bytes = if self.config.embeddings_enabled {
+            match tokio::task::spawn_blocking(move || traz_embeddings::embed_text(&full_text))
+                .await
+                .unwrap_or_else(|e| Err(anyhow::anyhow!("Task failed: {}", e)))
+            {
+                Ok(vec) => {
+                    let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
+                    Some(bytes)
+                }
+                Err(e) => {
+                    if !traz_embeddings::is_embedding_model_downloaded() {
+                        eprintln!(
+                            "Warning: Embedding model is not downloaded. Run `traz init --with-embeddings` to generate semantic vectors."
+                        );
+                    } else {
+                        eprintln!(
+                            "Warning: Failed to generate event embedding: {}. Run `traz init --with-embeddings` to re-download if corrupted.",
+                            e
+                        );
+                    }
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        if let Some(bytes) = embedding_bytes {
+            let model_version = "all-MiniLM-L6-v2";
+            let created_at = chrono::Utc::now().to_rfc3339();
+            if let Err(e) = tx
+                .execute(
+                    "INSERT INTO event_embeddings (event_id, vector, model_version, created_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                    libsql::params![rollup_id, bytes, model_version, created_at],
+                )
+                .await
+            {
+                eprintln!("Warning: Failed to insert event embedding: {}", e);
+            }
+        }
 
         tx.commit().await?;
 
