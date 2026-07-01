@@ -48,10 +48,16 @@ impl Db {
         }
 
         // Tune SQLite/libSQL for single-user, local-first workloads
-        let _ = conn.execute("PRAGMA journal_mode = WAL;", ()).await;
-        let _ = conn.execute("PRAGMA synchronous = NORMAL;", ()).await;
-        let _ = conn.execute("PRAGMA foreign_keys = ON;", ()).await;
-        let _ = conn.execute("PRAGMA busy_timeout = 5000;", ()).await;
+        for pragma in [
+            "PRAGMA journal_mode = WAL;",
+            "PRAGMA synchronous = NORMAL;",
+            "PRAGMA foreign_keys = ON;",
+            "PRAGMA busy_timeout = 5000;",
+        ] {
+            if let Err(e) = conn.execute(pragma, ()).await {
+                tracing::warn!("Failed to set pragma '{}': {}", pragma, e);
+            }
+        }
 
         let config = traz_core::TrazConfig::resolve();
         let db_instance = Self {

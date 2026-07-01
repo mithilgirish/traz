@@ -840,11 +840,14 @@ async fn run_command(
             let mut input = String::new();
             std::io::stdin().read_to_string(&mut input)?;
 
-            let events: Vec<Event> = serde_json::from_str(&input)?;
+            let mut events: Vec<Event> = serde_json::from_str(&input)?;
             let mut imported = 0;
             let mut skipped = 0;
 
-            for event in &events {
+            for event in &mut events {
+                // Clear parent_event_id on import to bypass stale source-DB ID validation
+                event.parent_event_id = None;
+
                 // Skip if UUID already exists
                 if let Ok(Some(_)) = db.get_event_by_uuid(&event.uuid).await {
                     skipped += 1;

@@ -1188,4 +1188,89 @@ mod tests {
 
         cleanup_test_env(test_dir);
     }
+
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_recent_toon_format() {
+        let (db, test_dir) = setup_test_env("recent_toon").await;
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Toon format test event".to_string(),
+            Some("Verifying toon routing through build_optimized_context".to_string()),
+            None,
+            None,
+        )
+        .with_branch(Some("main".to_string()));
+        db.insert_event(&event).await.unwrap();
+
+        let payload = json!({
+            "params": {
+                "name": "traz_recent",
+                "arguments": {
+                    "limit": 5,
+                    "format": "toon"
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &payload, false).await;
+        // Must not be an error
+        assert!(
+            res.get("isError").is_none(),
+            "traz_recent toon returned error: {:?}",
+            res
+        );
+        let text = res["content"][0]["text"].as_str().unwrap();
+        // toon output is non-empty and contains recognisable content
+        assert!(!text.trim().is_empty(), "toon output is empty");
+        assert!(
+            text.contains("Toon format test event"),
+            "toon output missing event title: {}",
+            text
+        );
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_recap_toon_format() {
+        let (db, test_dir) = setup_test_env("recap_toon").await;
+
+        let event = Event::new(
+            "aider".to_string(),
+            "bug_fix".to_string(),
+            "Recap toon item".to_string(),
+            Some("Summary for recap toon test".to_string()),
+            None,
+            None,
+        );
+        db.insert_event(&event).await.unwrap();
+
+        let payload = json!({
+            "params": {
+                "name": "traz_recap",
+                "arguments": {
+                    "hours": 24,
+                    "format": "toon"
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &payload, false).await;
+        assert!(
+            res.get("isError").is_none(),
+            "traz_recap toon returned error: {:?}",
+            res
+        );
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(!text.trim().is_empty(), "toon recap output is empty");
+        assert!(
+            text.contains("Recap toon item"),
+            "toon recap output missing event title: {}",
+            text
+        );
+
+        cleanup_test_env(test_dir);
+    }
 }

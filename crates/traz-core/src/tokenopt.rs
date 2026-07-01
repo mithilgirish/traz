@@ -379,8 +379,7 @@ pub fn build_optimized_context(
     if let Some(h) = header {
         let header_line = match format {
             OutputFormat::Markdown => format!("{h}\n\n"),
-            OutputFormat::Dense => format!("# {h}\n"),
-            OutputFormat::Toon => format!("# {h}\n"),
+            OutputFormat::Dense | OutputFormat::Toon => format!("# {h}\n"),
         };
         if budget.would_fit(&header_line) {
             budget.consume(&header_line);
@@ -539,28 +538,76 @@ pub fn build_optimized_context(
             }
         }
         OutputFormat::Toon => {
-            let mut valid_events = events;
-            loop {
-                if valid_events.is_empty() {
-                    let empty_msg = "(no events fit in budget)\n";
-                    budget.consume(empty_msg);
-                    output.push_str(empty_msg);
+            #[derive(serde::Serialize)]
+            struct ToonEvent<'a> {
+                tool: &'a str,
+                #[serde(rename = "type")]
+                event_type: &'a str,
+                title: &'a str,
+                age: String,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                summary: Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                files: Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                changes: Option<String>,
+            }
+
+            let mut projected_events = Vec::with_capacity(events.len());
+            let mut event_costs = Vec::with_capacity(events.len());
+
+            for event in &events {
+                let summary = event
+                    .summary
+                    .as_ref()
+                    .map(|s| s.chars().take(200).collect::<String>());
+                let files = event.files.as_ref().filter(|f| !f.is_empty()).map(|f| {
+                    if f.len() > 3 {
+                        let top: Vec<&str> = f.iter().take(3).map(|s| s.as_str()).collect();
+                        format!("{}, +{} more", top.join(", "), f.len() - 3)
+                    } else {
+                        f.join(", ")
+                    }
+                });
+                let changes = event.diff.as_ref().map(|d| summarize_diff(d));
+
+                let toon_event = ToonEvent {
+                    tool: &event.tool,
+                    event_type: abbreviate_type(&event.event_type),
+                    title: &event.title,
+                    age: compact_relative_time(&event.timestamp),
+                    summary,
+                    files,
+                    changes,
+                };
+
+                let cost = estimate_tokens(&serde_json::to_string(&toon_event).unwrap_or_default());
+                projected_events.push(toon_event);
+                event_costs.push(cost);
+            }
+
+            let mut valid_count = projected_events.len();
+            while valid_count > 0 {
+                let current_cost: usize = event_costs[..valid_count].iter().sum();
+                if budget.is_unlimited() || current_cost <= budget.remaining() {
                     break;
                 }
+                valid_count -= 1;
+            }
+            projected_events.truncate(valid_count);
 
-                if let Ok(json_bytes) = serde_json::to_vec(&valid_events)
-                    && let Ok(toon_str) = _etoon::toon::encode(&json_bytes)
-                {
-                    let formatted = format!("{}\n", toon_str);
-                    if budget.would_fit(&formatted) {
-                        budget.consume(&formatted);
-                        output.push_str(&formatted);
-                        break;
-                    }
+            if projected_events.is_empty() {
+                let empty_msg = "(no events fit in budget)\n";
+                budget.consume(empty_msg);
+                output.push_str(empty_msg);
+            } else if let Ok(json_bytes) = serde_json::to_vec(&projected_events)
+                && let Ok(toon_str) = _etoon::toon::encode(&json_bytes)
+            {
+                let formatted = format!("{}\n", toon_str);
+                if budget.would_fit(&formatted) {
+                    budget.consume(&formatted);
+                    output.push_str(&formatted);
                 }
-
-                // If we get here, it didn't fit or failed to encode, drop the oldest event
-                valid_events.pop();
             }
         }
     }

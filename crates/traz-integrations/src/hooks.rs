@@ -88,7 +88,7 @@ pub async fn handle_hook(
 
     // Phase 2: Worktree Session Isolation
     let branch_name =
-        crate::git::get_current_branch_normalized().unwrap_or_else(|| "default".to_string());
+        crate::git::get_current_branch_normalized().unwrap_or_else(|| "main".to_string());
     let safe_branch_name = session_key_for_branch(&branch_name);
 
     let sessions_dir = data_dir.join("sessions");
@@ -137,8 +137,14 @@ pub async fn handle_hook(
 
             let mut additional_context = String::new();
             if let Some(prompt) = input.prompt.as_deref().filter(|p| p.trim().len() >= 20) {
+                let branch_names_owned = db
+                    .get_ancestor_branches(&branch_name)
+                    .await
+                    .unwrap_or_else(|_| vec!["main".to_string()]);
+                let branch_refs: Vec<&str> =
+                    branch_names_owned.iter().map(|s| s.as_str()).collect();
                 let filters = traz_db::SearchFilters {
-                    branch_names: Some(vec![branch_name.as_str()]),
+                    branch_names: Some(branch_refs),
                     ..Default::default()
                 };
                 let matches = db
@@ -181,7 +187,12 @@ pub async fn handle_hook(
 
         "context" => {
             let limit = 10;
-            let branch_filter = Some(vec![branch_name.as_str()]);
+            let branch_names_owned = db
+                .get_ancestor_branches(&branch_name)
+                .await
+                .unwrap_or_else(|_| vec!["main".to_string()]);
+            let branch_refs: Vec<&str> = branch_names_owned.iter().map(|s| s.as_str()).collect();
+            let branch_filter = Some(branch_refs);
             match db
                 .get_context_optimized(
                     None,
