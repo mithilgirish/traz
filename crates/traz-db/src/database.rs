@@ -235,7 +235,9 @@ mod tests {
             db.add_column_if_missing("title").await.unwrap();
 
             // Add a new column that's not there
-            db.add_column_if_missing("some_new_test_field").await.unwrap();
+            db.add_column_if_missing("some_new_test_field")
+                .await
+                .unwrap();
 
             // Verify new column exists
             let mut stmt = db.conn.prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='some_new_test_field'").await.unwrap();

@@ -20,8 +20,14 @@ async fn test_semantic_search_snapshot() {
     );
     db.insert_event(&e1).await.unwrap();
 
-    let results = db.semantic_search("login", 1).await.expect("Semantic search failed");
-    assert!(!results.is_empty(), "Semantic search returned empty results");
+    let results = db
+        .semantic_search("login", 1)
+        .await
+        .expect("Semantic search failed");
+    assert!(
+        !results.is_empty(),
+        "Semantic search returned empty results"
+    );
 
     let snapshot_data = results
         .iter()
