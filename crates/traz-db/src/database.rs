@@ -47,15 +47,36 @@ impl Db {
             }
         }
 
-        // Tune SQLite/libSQL for single-user, local-first workloads
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous  = NORMAL;
-             PRAGMA foreign_keys = ON;
-             PRAGMA busy_timeout = 5000;",
-        )
-        .await
-        .context("Failed to set SQLite/libSQL pragmas")?;
+        // Tune SQLite/libSQL for single-user, local-first workloads.
+        // journal_mode=WAL is special: it returns a result row ("wal") rather than
+        // erroring on failure (e.g. read-only FS). We must query and verify the value.
+        {
+            let mut rows = conn.query("PRAGMA journal_mode = WAL;", ()).await;
+            match rows.as_mut() {
+                Err(e) => tracing::warn!("Failed to set PRAGMA journal_mode = WAL: {}", e),
+                Ok(rows) => match rows.next().await {
+                    Ok(Some(row)) => {
+                        let mode: String = row.get(0).unwrap_or_default();
+                        if mode != "wal" {
+                            tracing::warn!(
+                                "PRAGMA journal_mode = WAL not applied; actual mode: '{}'",
+                                mode
+                            );
+                        }
+                    }
+                    _ => tracing::warn!("PRAGMA journal_mode = WAL returned no result row"),
+                },
+            }
+        }
+        for pragma in [
+            "PRAGMA synchronous = NORMAL;",
+            "PRAGMA foreign_keys = ON;",
+            "PRAGMA busy_timeout = 5000;",
+        ] {
+            if let Err(e) = conn.execute(pragma, ()).await {
+                tracing::warn!("Failed to set pragma '{}': {}", pragma, e);
+            }
+        }
 
         let config = traz_core::TrazConfig::resolve();
         let db_instance = Self {
@@ -156,21 +177,19 @@ impl Db {
         Ok(())
     }
 
-    async fn add_column_if_missing(&self, column: &str, definition: &str) -> Result<()> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name=?1")
-            .await?;
+    async fn add_column_if_missing(&self, col: &str, def: &str) -> Result<()> {
+        let mut rows = self.conn.query("PRAGMA table_info(events);", ()).await?;
+        let mut exists = false;
+        while let Some(row) = rows.next().await? {
+            let name: String = row.get(1)?;
+            if name == col {
+                exists = true;
+            }
+        }
+        drop(rows);
 
-        let mut rows = stmt.query([column]).await?;
-        let has_col = if let Some(row) = rows.next().await? {
-            row.get::<i64>(0).unwrap_or(0) > 0
-        } else {
-            false
-        };
-
-        if !has_col {
-            let sql = format!("ALTER TABLE events ADD COLUMN {} {}", column, definition);
+        if !exists {
+            let sql = format!("ALTER TABLE events ADD COLUMN {} {};", col, def);
             self.conn.execute(&sql, ()).await?;
         }
         Ok(())

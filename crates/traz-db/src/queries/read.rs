@@ -269,10 +269,20 @@ impl Db {
             branches.push(b);
         }
 
-        // Always include main/master as global fallbacks just in case the DAG is disjointed
-        for default_branch in ["main", "master"] {
-            if !branches.contains(&default_branch.to_string()) {
-                branches.push(default_branch.to_string());
+        // Include main/master as fallbacks only when they actually have events,
+        // preventing phantom branch entries in queries on repos that don't use them.
+        let mut check = self
+            .conn
+            .query(
+                "SELECT DISTINCT branch_name FROM events WHERE branch_name IN ('main', 'master')",
+                (),
+            )
+            .await?;
+
+        while let Some(row) = check.next().await? {
+            let b: String = row.get(0)?;
+            if !branches.contains(&b) {
+                branches.push(b);
             }
         }
 
@@ -323,7 +333,7 @@ impl Db {
             traz_core::OutputFormat::Markdown => {
                 format!("# traz — Engineering Context Summary\n\n**Total events:** {total}\n\n")
             }
-            traz_core::OutputFormat::Dense => {
+            traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon => {
                 format!("traz|events:{total}\n")
             }
         };
@@ -343,7 +353,7 @@ impl Db {
                     s.push('\n');
                     s
                 }
-                traz_core::OutputFormat::Dense => {
+                traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon => {
                     let tools: Vec<String> = stats
                         .iter()
                         .map(|(tool, count)| format!("{tool}:{count}"))
@@ -408,8 +418,12 @@ impl Db {
 
         ctx.push_str(&optimized);
 
-        // ── Budget usage footer (dense only) ────────────────────
-        if matches!(format, traz_core::OutputFormat::Dense) && !budget.is_unlimited() {
+        // ── Budget usage footer (dense/toon only) ────────────────
+        if matches!(
+            format,
+            traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon
+        ) && !budget.is_unlimited()
+        {
             let footer = format!(
                 "---budget|used:{}|max:{}\n",
                 budget.max_tokens - budget.remaining(),
@@ -481,8 +495,17 @@ impl Db {
             while let Some(row) = rows.next().await? {
                 let event_id: i64 = row.get(0)?;
                 let vector_bytes: Vec<u8> = row.get(1)?;
+                if !vector_bytes.len().is_multiple_of(4) {
+                    tracing::warn!(
+                        "Malformed vector blob for event_id {}: length {} is not a multiple of 4 bytes",
+                        event_id,
+                        vector_bytes.len()
+                    );
+                }
+
                 let event_vec: Vec<f32> = vector_bytes
                     .chunks(4)
+                    .filter(|c| c.len() == 4)
                     .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
                     .collect();
 

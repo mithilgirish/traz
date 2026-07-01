@@ -186,7 +186,7 @@ fn build_tool_definitions(experimental: bool) -> Value {
                 "type": "object",
                 "properties": {
                     "limit": { "type": "number", "description": "Number of events to retrieve (default 10, max 100)" },
-                    "format": { "type": "string", "description": "Output format: 'markdown' (default, human-readable) or 'dense' (AI-optimized, ~50-70% fewer tokens)" },
+                    "format": { "type": "string", "description": "Output format: 'markdown' (default, human-readable prose), 'dense' (AI-optimized, ~50-70% fewer tokens), or 'toon' (TOON encoding, maximally token-efficient)" },
                     "max_tokens": { "type": "number", "description": "Optional token budget. Output is truncated to fit within this many tokens." },
                     "deduplicate": { "type": "boolean", "description": "Merge near-duplicate events to save tokens (default false)" }
                 }
@@ -231,7 +231,7 @@ fn build_tool_definitions(experimental: bool) -> Value {
                 "properties": {
                     "query": { "type": "string", "description": "Optional search query to fetch only context relevant to your current task." },
                     "limit": { "type": "number", "description": "Number of recent events to include (default 10)" },
-                    "format": { "type": "string", "description": "Output format: 'markdown' (default) or 'dense' (AI-optimized, uses pipe-delimited single-line format, type abbreviations, diff summaries — ~50-70% fewer tokens)" },
+                    "format": { "type": "string", "description": "Output format: 'markdown' (default, human-readable prose), 'dense' (AI-optimized, ~50-70% fewer tokens), or 'toon' (TOON encoding, maximally token-efficient)" },
                     "max_tokens": { "type": "number", "description": "Optional token budget. Output is automatically truncated to fit, using progressive detail reduction." },
                     "deduplicate": { "type": "boolean", "description": "Merge near-duplicate events to save tokens (default false). Uses Jaccard similarity on titles." }
                 }
@@ -309,7 +309,7 @@ fn build_tool_definitions(experimental: bool) -> Value {
                 "type": "object",
                 "properties": {
                     "hours": { "type": "number", "description": "Number of hours to look back (default 24, max 168=1week)" },
-                    "format": { "type": "string", "description": "Output format: 'markdown' (default) or 'dense' (AI-optimized, ~50-70% fewer tokens)" }
+                    "format": { "type": "string", "description": "Output format: 'markdown' (default, human-readable prose), 'dense' (AI-optimized, ~50-70% fewer tokens), or 'toon' (TOON encoding, maximally token-efficient)" }
                 }
             }
         }),
@@ -379,25 +379,20 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .unwrap_or(false);
 
             match db.get_recent_events(limit).await {
-                Ok(events) => match format {
-                    traz_core::OutputFormat::Dense => {
-                        let mut budget = match max_tokens {
-                            Some(n) => traz_core::TokenBudget::new(n),
-                            None => traz_core::TokenBudget::unlimited(),
-                        };
-                        let output = traz_core::build_optimized_context(
-                            events,
-                            format,
-                            &mut budget,
-                            deduplicate,
-                            Some("Recent Events"),
-                        );
-                        tool_ok(&output)
-                    }
-                    traz_core::OutputFormat::Markdown => {
-                        tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default())
-                    }
-                },
+                Ok(events) => {
+                    let mut budget = match max_tokens {
+                        Some(n) => traz_core::TokenBudget::new(n),
+                        None => traz_core::TokenBudget::unlimited(),
+                    };
+                    let output = traz_core::build_optimized_context(
+                        events,
+                        format,
+                        &mut budget,
+                        deduplicate,
+                        Some("Recent Events"),
+                    );
+                    tool_ok(&output)
+                }
                 Err(e) => tool_err(&e.to_string()),
             }
         }
@@ -721,11 +716,11 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                         format!("Recap — Last {} hours ({} events)\n", hours, events.len());
                     output.push_str("─────────────────────────────────────\n");
                     match format {
-                        traz_core::OutputFormat::Dense => {
+                        traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon => {
                             let mut budget = traz_core::TokenBudget::unlimited();
                             let dense = traz_core::build_optimized_context(
                                 events,
-                                traz_core::OutputFormat::Dense,
+                                format,
                                 &mut budget,
                                 false,
                                 None,
@@ -1182,6 +1177,91 @@ mod tests {
         });
         let res_diff = handle_tool_call(&db, &bad_diff, false).await;
         assert_eq!(res_diff["isError"], true);
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_recent_toon_format() {
+        let (db, test_dir) = setup_test_env("recent_toon").await;
+
+        let event = Event::new(
+            "cursor".to_string(),
+            "feature".to_string(),
+            "Toon format test event".to_string(),
+            Some("Verifying toon routing through build_optimized_context".to_string()),
+            None,
+            None,
+        )
+        .with_branch(Some("main".to_string()));
+        db.insert_event(&event).await.unwrap();
+
+        let payload = json!({
+            "params": {
+                "name": "traz_recent",
+                "arguments": {
+                    "limit": 5,
+                    "format": "toon"
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &payload, false).await;
+        // Must not be an error
+        assert!(
+            res.get("isError").is_none(),
+            "traz_recent toon returned error: {:?}",
+            res
+        );
+        let text = res["content"][0]["text"].as_str().unwrap();
+        // toon output is non-empty and contains recognisable content
+        assert!(!text.trim().is_empty(), "toon output is empty");
+        assert!(
+            text.contains("Toon format test event"),
+            "toon output missing event title: {}",
+            text
+        );
+
+        cleanup_test_env(test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_recap_toon_format() {
+        let (db, test_dir) = setup_test_env("recap_toon").await;
+
+        let event = Event::new(
+            "aider".to_string(),
+            "bug_fix".to_string(),
+            "Recap toon item".to_string(),
+            Some("Summary for recap toon test".to_string()),
+            None,
+            None,
+        );
+        db.insert_event(&event).await.unwrap();
+
+        let payload = json!({
+            "params": {
+                "name": "traz_recap",
+                "arguments": {
+                    "hours": 24,
+                    "format": "toon"
+                }
+            }
+        });
+
+        let res = handle_tool_call(&db, &payload, false).await;
+        assert!(
+            res.get("isError").is_none(),
+            "traz_recap toon returned error: {:?}",
+            res
+        );
+        let text = res["content"][0]["text"].as_str().unwrap();
+        assert!(!text.trim().is_empty(), "toon recap output is empty");
+        assert!(
+            text.contains("Recap toon item"),
+            "toon recap output missing event title: {}",
+            text
+        );
 
         cleanup_test_env(test_dir);
     }

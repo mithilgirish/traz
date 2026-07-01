@@ -40,6 +40,7 @@ tower-http = { version = "0.5", features = ["trace", "cors"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 toml = "0.8"
 fastembed = "5"
+etoon = "0.6.0"
 # Internal crates
 traz-core = { path = "crates/traz-core" }
 traz-db = { path = "crates/traz-db" }

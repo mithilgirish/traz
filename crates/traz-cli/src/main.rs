@@ -837,29 +837,17 @@ async fn run_command(
             let mut input = String::new();
             std::io::stdin().read_to_string(&mut input)?;
 
-            let events: Vec<Event> = serde_json::from_str(&input)?;
-            let mut imported = 0;
-            let mut skipped = 0;
-
-            for event in &events {
-                // Skip if UUID already exists
-                if let Ok(Some(_)) = db.get_event_by_uuid(&event.uuid).await {
-                    skipped += 1;
-                    continue;
+            match do_import(&db, &input).await {
+                Ok((imported, skipped)) => {
+                    print_success(&format!(
+                        "Imported {} events ({} skipped).",
+                        imported, skipped
+                    ));
                 }
-                match db.insert_event(event).await {
-                    Ok(_) => imported += 1,
-                    Err(e) => {
-                        print_warning(&format!("Skipped event \"{}\": {}", event.title, e));
-                        skipped += 1;
-                    }
+                Err(e) => {
+                    return Err(e);
                 }
             }
-
-            print_success(&format!(
-                "Imported {} events ({} skipped).",
-                imported, skipped
-            ));
         }
 
         Commands::Setup { tool } => {
@@ -1635,4 +1623,58 @@ fn confirm_prompt(prompt_msg: &str) -> bool {
     std::io::stdin().read_line(&mut response).ok();
     let trimmed = response.trim().to_lowercase();
     trimmed.is_empty() || trimmed == "y" || trimmed == "yes"
+}
+
+pub async fn do_import(db: &traz_db::Db, input: &str) -> anyhow::Result<(usize, usize)> {
+    let mut events: Vec<Event> = serde_json::from_str(input)?;
+    let mut imported = 0;
+    let mut skipped = 0;
+
+    for event in &mut events {
+        // Clear parent_event_id on import to bypass stale source-DB ID validation
+        event.parent_event_id = None;
+
+        // Skip if UUID already exists
+        if let Ok(Some(_)) = db.get_event_by_uuid(&event.uuid).await {
+            skipped += 1;
+            continue;
+        }
+        match db.insert_event(event).await {
+            Ok(_) => imported += 1,
+            Err(e) => {
+                print_warning(&format!("Skipped event \"{}\": {}", event.title, e));
+                skipped += 1;
+            }
+        }
+    }
+    Ok((imported, skipped))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_commands_import_clears_parent_id() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("traz.db");
+        let db = traz_db::Db::open(&db_path).await.unwrap();
+
+        let mut event = Event::new(
+            "test_tool".to_string(),
+            "test_type".to_string(),
+            "Test import event".to_string(),
+            None,
+            None,
+            None,
+        );
+        event.parent_event_id = Some(9999); // Non-existent parent ID
+
+        let json_input = serde_json::to_string(&vec![event]).unwrap();
+
+        // This should succeed because do_import clears parent_event_id
+        let (imported, skipped) = do_import(&db, &json_input).await.unwrap();
+        assert_eq!(imported, 1);
+        assert_eq!(skipped, 0);
+    }
 }

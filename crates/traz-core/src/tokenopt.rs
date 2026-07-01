@@ -65,12 +65,15 @@ pub enum OutputFormat {
     Markdown,
     /// Dense single-line format optimized for AI token consumption.
     Dense,
+    /// Token-Oriented Object Notation, highly optimized for LLMs
+    Toon,
 }
 
 impl OutputFormat {
     pub fn from_str_opt(s: Option<&str>) -> Self {
         match s {
             Some("dense" | "compact" | "ai") => Self::Dense,
+            Some("toon") => Self::Toon,
             _ => Self::Markdown,
         }
     }
@@ -376,7 +379,7 @@ pub fn build_optimized_context(
     if let Some(h) = header {
         let header_line = match format {
             OutputFormat::Markdown => format!("{h}\n\n"),
-            OutputFormat::Dense => format!("# {h}\n"),
+            OutputFormat::Dense | OutputFormat::Toon => format!("# {h}\n"),
         };
         if budget.would_fit(&header_line) {
             budget.consume(&header_line);
@@ -532,6 +535,110 @@ pub fn build_optimized_context(
                 }
 
                 output.push('\n');
+            }
+        }
+        OutputFormat::Toon => {
+            #[derive(serde::Serialize)]
+            struct ToonEvent<'a> {
+                tool: &'a str,
+                #[serde(rename = "type")]
+                event_type: &'a str,
+                title: &'a str,
+                age: String,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                summary: Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                files: Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                changes: Option<String>,
+            }
+
+            let mut projected_events = Vec::with_capacity(events.len());
+            let mut event_costs = Vec::with_capacity(events.len());
+
+            for event in &events {
+                let summary = event
+                    .summary
+                    .as_ref()
+                    .map(|s| s.chars().take(200).collect::<String>());
+                let files = event.files.as_ref().filter(|f| !f.is_empty()).map(|f| {
+                    if f.len() > 3 {
+                        let top: Vec<&str> = f.iter().take(3).map(|s| s.as_str()).collect();
+                        format!("{}, +{} more", top.join(", "), f.len() - 3)
+                    } else {
+                        f.join(", ")
+                    }
+                });
+                let changes = event.diff.as_ref().map(|d| summarize_diff(d));
+
+                let toon_event = ToonEvent {
+                    tool: &event.tool,
+                    event_type: abbreviate_type(&event.event_type),
+                    title: &event.title,
+                    age: compact_relative_time(&event.timestamp),
+                    summary,
+                    files,
+                    changes,
+                };
+
+                let cost = estimate_tokens(&serde_json::to_string(&toon_event).unwrap_or_default());
+                projected_events.push(toon_event);
+                event_costs.push(cost);
+            }
+
+            let mut valid_count = projected_events.len();
+            while valid_count > 0 {
+                let current_cost: usize = event_costs[..valid_count].iter().sum();
+                if budget.is_unlimited() || current_cost <= budget.remaining() {
+                    break;
+                }
+                valid_count -= 1;
+            }
+            projected_events.truncate(valid_count);
+
+            if projected_events.is_empty() {
+                let empty_msg = "(no events fit in budget)\n";
+                budget.consume(empty_msg);
+                output.push_str(empty_msg);
+            } else {
+                let mut encoded = None;
+                let mut encode_error = false;
+
+                while valid_count > 0 {
+                    match serde_json::to_vec(&projected_events[..valid_count]) {
+                        Ok(json_bytes) => match _etoon::toon::encode(&json_bytes) {
+                            Ok(toon_str) => {
+                                let formatted = format!("{}\n", toon_str);
+                                if budget.would_fit(&formatted) {
+                                    encoded = Some(formatted);
+                                    break;
+                                }
+                            }
+                            Err(_) => {
+                                encode_error = true;
+                                break;
+                            }
+                        },
+                        Err(_) => {
+                            encode_error = true;
+                            break;
+                        }
+                    }
+                    valid_count -= 1;
+                }
+
+                if let Some(formatted) = encoded {
+                    budget.consume(&formatted);
+                    output.push_str(&formatted);
+                } else if encode_error {
+                    let err = "(toon encoding failed)\n";
+                    budget.consume(err);
+                    output.push_str(err);
+                } else {
+                    let trunc = "...(truncated)\n";
+                    budget.consume(trunc);
+                    output.push_str(trunc);
+                }
             }
         }
     }
