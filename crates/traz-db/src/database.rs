@@ -110,11 +110,11 @@ impl Db {
             .await?;
 
         // Step 2: Add columns that may be missing from older schemas
-        self.add_column_if_missing("uuid").await;
-        self.add_column_if_missing("metadata").await;
-        self.add_column_if_missing("tags").await;
-        self.add_column_if_missing("session_id").await;
-        self.add_column_if_missing("diff").await;
+        self.add_column_if_missing("uuid").await?;
+        self.add_column_if_missing("metadata").await?;
+        self.add_column_if_missing("tags").await?;
+        self.add_column_if_missing("session_id").await?;
+        self.add_column_if_missing("diff").await?;
 
         // Step 3: Create indexes (safe now that all columns exist)
         self.conn
@@ -142,29 +142,24 @@ impl Db {
         Ok(())
     }
 
-    async fn add_column_if_missing(&self, column: &str) {
-        let has_col = match self
+    async fn add_column_if_missing(&self, column: &str) -> Result<()> {
+        let mut stmt = self
             .conn
             .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name=?1")
-            .await
-        {
-            Ok(mut stmt) => match stmt.query([column]).await {
-                Ok(mut rows) => {
-                    if let Ok(Some(row)) = rows.next().await {
-                        row.get::<i64>(0).map(|n| n > 0).unwrap_or(false)
-                    } else {
-                        false
-                    }
-                }
-                Err(_) => false,
-            },
-            Err(_) => false,
+            .await?;
+
+        let mut rows = stmt.query([column]).await?;
+        let has_col = if let Some(row) = rows.next().await? {
+            row.get::<i64>(0).unwrap_or(0) > 0
+        } else {
+            false
         };
 
         if !has_col {
             let sql = format!("ALTER TABLE events ADD COLUMN {} TEXT", column);
-            let _ = self.conn.execute(&sql, ()).await;
+            self.conn.execute(&sql, ()).await?;
         }
+        Ok(())
     }
 }
 
@@ -172,7 +167,6 @@ impl Db {
 mod tests {
     use super::*;
     use std::fs;
-    use std::time::SystemTime;
 
     fn get_temp_db_path() -> (PathBuf, PathBuf) {
         let ts = uuid::Uuid::new_v4().to_string();
@@ -238,10 +232,10 @@ mod tests {
         // Test add_column_if_missing logic
         {
             // Try to add an existing column - should not fail
-            db.add_column_if_missing("title").await;
+            db.add_column_if_missing("title").await.unwrap();
 
             // Add a new column that's not there
-            db.add_column_if_missing("some_new_test_field").await;
+            db.add_column_if_missing("some_new_test_field").await.unwrap();
 
             // Verify new column exists
             let mut stmt = db.conn.prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='some_new_test_field'").await.unwrap();

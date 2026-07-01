@@ -3,6 +3,7 @@
 mod tests {
     use crate::database::Db;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use traz_core::Event;
 
     async fn test_db() -> Db {
@@ -498,6 +499,39 @@ mod tests {
         let db = Db::open(&db_path).await.unwrap();
         let count = db.count_events().await.unwrap();
         assert_eq!(count, 10);
+
+        let _ = std::fs::remove_dir_all(unique_dir);
+    }
+
+    #[tokio::test]
+    async fn test_db_shared_arc_concurrency() {
+        let ts = uuid::Uuid::new_v4().to_string();
+        let unique_dir = std::env::temp_dir().join(format!("traz_db_shared_arc_{}", ts));
+        std::fs::create_dir_all(&unique_dir).unwrap();
+        let db_path = unique_dir.join("traz.db");
+
+        let db = Arc::new(Db::open(&db_path).await.unwrap());
+        let mut handles = vec![];
+
+        for i in 0..20 {
+            let db_clone = Arc::clone(&db);
+            let handle = tokio::spawn(async move {
+                let event = sample_event("cursor", "feature", &format!("Thread {} event", i));
+                db_clone.insert_event(&event).await.unwrap()
+            });
+            handles.push(handle);
+        }
+
+        let mut ids = std::collections::HashSet::new();
+        for handle in handles {
+            let id = handle.await.unwrap();
+            ids.insert(id);
+        }
+
+        // Verify all events were written successfully and got unique IDs
+        assert_eq!(ids.len(), 20);
+        let count = db.count_events().await.unwrap();
+        assert_eq!(count, 20);
 
         let _ = std::fs::remove_dir_all(unique_dir);
     }
