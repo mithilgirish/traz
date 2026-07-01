@@ -56,6 +56,15 @@ pub struct ActiveSessionState {
 ///
 /// Parses standard input payload, updates the shared session registry, logs events,
 /// and returns the stdout JSON payload for context injection.
+/// Derives a safe session key for a branch name using hex encoding.
+pub fn session_key_for_branch(branch_name: &str) -> String {
+    branch_name
+        .as_bytes()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
+}
+
 pub async fn handle_hook(
     db: &Db,
     platform: &str,
@@ -80,11 +89,7 @@ pub async fn handle_hook(
     // Phase 2: Worktree Session Isolation
     let branch_name =
         crate::git::get_current_branch_normalized().unwrap_or_else(|| "default".to_string());
-    let safe_branch_name: String = branch_name
-        .as_bytes()
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect();
+    let safe_branch_name = session_key_for_branch(&branch_name);
 
     let sessions_dir = data_dir.join("sessions");
     let _ = fs::create_dir_all(&sessions_dir);
@@ -231,7 +236,7 @@ pub async fn handle_hook(
                     _ => None,
                 };
 
-                let branch = crate::git::get_current_branch_normalized();
+                let branch = Some(branch_name.clone());
                 let event =
                     Event::new(platform.to_string(), event_type, title, summary, None, None)
                         .with_session(input.session_id.clone().unwrap_or_default())
@@ -253,7 +258,7 @@ pub async fn handle_hook(
                     .edits
                     .as_ref()
                     .map(|e| serde_json::to_string_pretty(e).unwrap_or_default());
-                let branch = crate::git::get_current_branch_normalized();
+                let branch = Some(branch_name.clone());
                 let event = Event::new(
                     platform.to_string(),
                     "refactor".to_string(),
@@ -336,15 +341,9 @@ mod tests {
         // Pre-populate active_session_default.json with another tool active recently
         let sessions_dir = test_dir.join("sessions");
         let _ = std::fs::create_dir_all(&sessions_dir);
-        let branch_name = crate::git::get_current_branch()
-            .ok()
-            .filter(|b| !b.trim().is_empty())
-            .unwrap_or_else(|| "default".to_string());
-        let safe_branch_name: String = branch_name
-            .as_bytes()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect();
+        let branch_name =
+            crate::git::get_current_branch_normalized().unwrap_or_else(|| "default".to_string());
+        let safe_branch_name = session_key_for_branch(&branch_name);
         let active_session_path =
             sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
         let now = SystemTime::now()
@@ -402,15 +401,9 @@ mod tests {
         // Pre-populate active_session_default.json with another tool active long ago
         let sessions_dir = test_dir.join("sessions");
         let _ = std::fs::create_dir_all(&sessions_dir);
-        let branch_name = crate::git::get_current_branch()
-            .ok()
-            .filter(|b| !b.trim().is_empty())
-            .unwrap_or_else(|| "default".to_string());
-        let safe_branch_name: String = branch_name
-            .as_bytes()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect();
+        let branch_name =
+            crate::git::get_current_branch_normalized().unwrap_or_else(|| "default".to_string());
+        let safe_branch_name = session_key_for_branch(&branch_name);
         let active_session_path =
             sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
         let now = SystemTime::now()

@@ -79,24 +79,36 @@ impl Db {
         // Auto-assign parent_event_id to build the DAG
         let mut final_parent_event_id = event.parent_event_id;
         if final_parent_event_id.is_none() {
-            let branch = event.branch_name.as_deref().unwrap_or("default");
+            if let Some(branch) = event.branch_name.as_deref() {
+                // Try to find the latest event on the same branch
+                let mut stmt = self
+                    .conn
+                    .prepare(
+                        "SELECT id FROM events WHERE branch_name = ?1 ORDER BY timestamp DESC LIMIT 1",
+                    )
+                    .await?;
+                let mut rows = stmt.query(libsql::params![branch]).await?;
 
-            // Try to find the latest event on the same branch
-            let mut stmt = self
-                .conn
-                .prepare(
-                    "SELECT id FROM events WHERE branch_name = ?1 ORDER BY timestamp DESC LIMIT 1",
-                )
-                .await?;
-            let mut rows = stmt.query(libsql::params![branch]).await?;
-
-            if let Ok(Some(row)) = rows.next().await {
-                final_parent_event_id = row.get::<i64>(0).ok();
-            } else if branch != "main" && branch != "master" {
-                // Fallback to main branch as ancestor if this is a new branch
-                let mut stmt_main = self.conn.prepare("SELECT id FROM events WHERE branch_name IN ('main', 'master') ORDER BY timestamp DESC LIMIT 1").await?;
-                let mut rows_main = stmt_main.query(libsql::params![]).await?;
-                if let Ok(Some(row)) = rows_main.next().await {
+                if let Some(row) = rows.next().await? {
+                    final_parent_event_id = row.get::<i64>(0).ok();
+                } else if branch != "main" && branch != "master" {
+                    // Fallback to main branch as ancestor if this is a new branch
+                    let mut stmt_main = self.conn.prepare("SELECT id FROM events WHERE branch_name IN ('main', 'master') ORDER BY timestamp DESC LIMIT 1").await?;
+                    let mut rows_main = stmt_main.query(libsql::params![]).await?;
+                    if let Some(row) = rows_main.next().await? {
+                        final_parent_event_id = row.get::<i64>(0).ok();
+                    }
+                }
+            } else {
+                // Unbranched event, look for latest unbranched event
+                let mut stmt = self
+                    .conn
+                    .prepare(
+                        "SELECT id FROM events WHERE branch_name IS NULL ORDER BY timestamp DESC LIMIT 1",
+                    )
+                    .await?;
+                let mut rows = stmt.query(libsql::params![]).await?;
+                if let Some(row) = rows.next().await? {
                     final_parent_event_id = row.get::<i64>(0).ok();
                 }
             }
@@ -374,16 +386,15 @@ impl Db {
                 }
                 Err(e) => {
                     if !traz_embeddings::is_embedding_model_downloaded() {
-                        eprintln!(
-                            "Warning: Embedding model is not downloaded. Run `traz init --with-embeddings` to generate semantic vectors."
-                        );
+                        return Err(anyhow::anyhow!(
+                            "Embedding model is not downloaded. Run `traz init --with-embeddings` to generate semantic vectors."
+                        ));
                     } else {
-                        eprintln!(
-                            "Warning: Failed to generate event embedding: {}. Run `traz init --with-embeddings` to re-download if corrupted.",
+                        return Err(anyhow::anyhow!(
+                            "Failed to generate event embedding: {}. Run `traz init --with-embeddings` to re-download if corrupted.",
                             e
-                        );
+                        ));
                     }
-                    None
                 }
             }
         } else {
@@ -393,16 +404,12 @@ impl Db {
         if let Some(bytes) = embedding_bytes {
             let model_version = "all-MiniLM-L6-v2";
             let created_at = chrono::Utc::now().to_rfc3339();
-            if let Err(e) = tx
-                .execute(
-                    "INSERT INTO event_embeddings (event_id, vector, model_version, created_at)
+            tx.execute(
+                "INSERT INTO event_embeddings (event_id, vector, model_version, created_at)
                  VALUES (?1, ?2, ?3, ?4)",
-                    libsql::params![rollup_id, bytes, model_version, created_at],
-                )
-                .await
-            {
-                eprintln!("Warning: Failed to insert event embedding: {}", e);
-            }
+                libsql::params![rollup_id, bytes, model_version, created_at],
+            )
+            .await?;
         }
 
         tx.commit().await?;

@@ -426,7 +426,8 @@ mod tests {
             Some("Fixed database reconnect during login session".into()),
             None,
             None,
-        );
+        )
+        .with_branch(Some("main".to_string()));
         let e2 = Event::new(
             "t2".into(),
             "f2".into(),
@@ -434,7 +435,8 @@ mod tests {
             Some("Re-aligned flex box grid items to center".into()),
             None,
             None,
-        );
+        )
+        .with_branch(Some("main".to_string()));
 
         let id1 = db.insert_event(&e1).await.unwrap();
         let id2 = db.insert_event(&e2).await.unwrap();
