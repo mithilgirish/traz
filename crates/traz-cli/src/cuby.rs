@@ -222,6 +222,7 @@ pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>)
             }
 
             let title = args.join(" ");
+            let branch = traz_integrations::git::get_current_branch_normalized();
             let event = Event {
                 id: None,
                 uuid: uuid::Uuid::new_v4().to_string(),
@@ -234,6 +235,10 @@ pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>)
                 tags: Some(vec!["fed".to_string(), "cuby".to_string()]),
                 session_id: None,
                 diff: None,
+                branch_name: branch,
+                parent_event_id: None,
+                is_checkpoint: None,
+                agent_id: None,
                 timestamp: chrono::Utc::now(),
                 created_at: Some(chrono::Utc::now()),
             };

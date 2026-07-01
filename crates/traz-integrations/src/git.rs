@@ -77,6 +77,7 @@ pub fn capture_latest_commit() -> Result<Event> {
         files_opt,
         None,
     )
+    .with_branch(Some(branch.clone()))
     .with_metadata(serde_json::json!({
         "commit_hash": hash,
         "branch": branch,
@@ -115,8 +116,17 @@ pub fn get_uncommitted_diff() -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.is_empty() { Ok(None) } else { Ok(Some(s)) }
+    let diff = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if diff.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(diff))
+    }
+}
+
+/// Helper to get the current branch name safely, treating empty results as None.
+pub fn get_current_branch_normalized() -> Option<String> {
+    get_current_branch().ok().filter(|b| !b.trim().is_empty())
 }
 
 /// Get the name of the current git branch.

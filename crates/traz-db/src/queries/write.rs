@@ -11,6 +11,13 @@ impl Db {
         validate_field("event_type", &event.event_type, MAX_FIELD_LEN)?;
         validate_field("title", &event.title, MAX_FIELD_LEN)?;
 
+        if let Some(ref branch) = event.branch_name {
+            validate_field("branch_name", branch, MAX_FIELD_LEN)?;
+        }
+        if let Some(ref agent) = event.agent_id {
+            validate_field("agent_id", agent, MAX_FIELD_LEN)?;
+        }
+
         if let Some(ref summary) = event.summary {
             validate_field("summary", summary, MAX_SUMMARY_LEN)?;
         }
@@ -69,9 +76,47 @@ impl Db {
             None
         };
 
+        // Auto-assign parent_event_id to build the DAG
+        let mut final_parent_event_id = event.parent_event_id;
+        if final_parent_event_id.is_none() {
+            if let Some(branch) = event.branch_name.as_deref() {
+                // Try to find the latest event on the same branch
+                let mut stmt = self
+                    .conn
+                    .prepare(
+                        "SELECT id FROM events WHERE branch_name = ?1 ORDER BY timestamp DESC LIMIT 1",
+                    )
+                    .await?;
+                let mut rows = stmt.query(libsql::params![branch]).await?;
+
+                if let Some(row) = rows.next().await? {
+                    final_parent_event_id = row.get::<i64>(0).ok();
+                } else if branch != "main" && branch != "master" {
+                    // Fallback to main branch as ancestor if this is a new branch
+                    let mut stmt_main = self.conn.prepare("SELECT id FROM events WHERE branch_name IN ('main', 'master') ORDER BY timestamp DESC LIMIT 1").await?;
+                    let mut rows_main = stmt_main.query(libsql::params![]).await?;
+                    if let Some(row) = rows_main.next().await? {
+                        final_parent_event_id = row.get::<i64>(0).ok();
+                    }
+                }
+            } else {
+                // Unbranched event, look for latest unbranched event
+                let mut stmt = self
+                    .conn
+                    .prepare(
+                        "SELECT id FROM events WHERE branch_name IS NULL ORDER BY timestamp DESC LIMIT 1",
+                    )
+                    .await?;
+                let mut rows = stmt.query(libsql::params![]).await?;
+                if let Some(row) = rows.next().await? {
+                    final_parent_event_id = row.get::<i64>(0).ok();
+                }
+            }
+        }
+
         self.conn.execute(
-            "INSERT INTO events (uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO events (uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             libsql::params![
                 event.uuid.clone(),
                 event.tool.clone(),
@@ -83,6 +128,10 @@ impl Db {
                 tags_json,
                 event.session_id.clone(),
                 event.diff.clone(),
+                event.branch_name.clone(),
+                final_parent_event_id,
+                event.is_checkpoint.unwrap_or(false),
+                event.agent_id.clone(),
                 event.timestamp.to_rfc3339(),
             ],
         )
@@ -126,6 +175,47 @@ impl Db {
             .execute("DELETE FROM events WHERE id > ?1", libsql::params![id])
             .await?;
         Ok(affected as usize)
+    }
+
+    /// Mark the current state as a checkpoint by inserting a new checkpoint event.
+    pub async fn mark_checkpoint(&self, branch: &str, message: Option<String>) -> Result<i64> {
+        let title = message.unwrap_or_else(|| "Memory Checkpoint".to_string());
+
+        let mut event =
+            traz_core::Event::new("traz".into(), "checkpoint".into(), title, None, None, None)
+                .with_branch(Some(branch.to_string()));
+        event.is_checkpoint = Some(true);
+
+        self.insert_event(&event).await
+    }
+
+    /// Roll back the branch to its most recent checkpoint.
+    pub async fn rollback_to_checkpoint(&self, branch: &str) -> Result<usize> {
+        // Find the most recent checkpoint on this branch, ordered by id (consistent with delete boundary)
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id FROM events WHERE branch_name = ?1 AND is_checkpoint = 1 ORDER BY id DESC LIMIT 1",
+            )
+            .await?;
+        let mut rows = stmt.query(libsql::params![branch]).await?;
+
+        if let Some(row) = rows.next().await? {
+            let checkpoint_id: i64 = row.get(0)?;
+
+            // Delete all events on this branch that have an id > checkpoint_id
+            let affected = self
+                .conn
+                .execute(
+                    "DELETE FROM events WHERE branch_name = ?1 AND id > ?2",
+                    libsql::params![branch, checkpoint_id],
+                )
+                .await?;
+
+            Ok(affected as usize)
+        } else {
+            anyhow::bail!("No checkpoint found on branch '{}'", branch);
+        }
     }
 
     /// Compress older events into a single "epoch" event to save context.
@@ -179,9 +269,9 @@ impl Db {
         let uuid = dummy.uuid;
 
         tx.execute(
-            "INSERT INTO events (uuid, tool, type, title, summary, timestamp) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            libsql::params![uuid, "traz", "epoch", title, summary, now.to_rfc3339()],
+            "INSERT INTO events (uuid, tool, type, title, summary, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            libsql::params![uuid, "traz", "epoch", title, summary, None::<String>, None::<i64>, false, None::<String>, now.to_rfc3339()],
         )
         .await?;
 
@@ -197,6 +287,134 @@ impl Db {
         tx.commit().await?;
 
         Ok((count as usize, epoch_id))
+    }
+
+    /// Rollup a subagent's memory into a single Semantic Summary Event in the parent agent's timeline.
+    /// Deletion is scoped to the given branch (or all branches if None).
+    pub async fn rollup_agent_memory(
+        &self,
+        agent_id: &str,
+        summary: String,
+        branch_name: Option<String>,
+    ) -> Result<i64> {
+        validate_field("agent_id", agent_id, MAX_FIELD_LEN)?;
+        validate_field("summary", &summary, MAX_SUMMARY_LEN)?;
+        if let Some(ref b) = branch_name {
+            validate_field("branch_name", b, MAX_FIELD_LEN)?;
+        }
+
+        let tx = self.conn.transaction().await?;
+
+        // 1. Delete episodic events for the subagent, scoped by branch when provided.
+        let count = if let Some(ref branch) = branch_name {
+            tx.execute(
+                "DELETE FROM events WHERE agent_id = ?1 AND branch_name = ?2",
+                libsql::params![agent_id, branch.clone()],
+            )
+            .await?
+        } else {
+            tx.execute(
+                "DELETE FROM events WHERE agent_id = ?1",
+                libsql::params![agent_id],
+            )
+            .await?
+        };
+
+        if count == 0 {
+            anyhow::bail!(
+                "No events found for agent_id '{}' on the requested branch",
+                agent_id
+            );
+        }
+
+        // 2. Resolve the latest remaining event on this branch as parent.
+        let parent_id: Option<i64> = if let Some(ref branch) = branch_name {
+            let mut rows = tx
+                .query(
+                    "SELECT id FROM events WHERE branch_name = ?1 ORDER BY id DESC LIMIT 1",
+                    libsql::params![branch.clone()],
+                )
+                .await?;
+            if let Some(row) = rows.next().await? {
+                row.get::<i64>(0).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // 3. Insert the semantic summary event.
+        let title = format!("Subagent Rollup (deleted {} events)", count);
+        let now = chrono::Utc::now();
+        let dummy = traz_core::Event::new(
+            "traz".into(),
+            "summary".into(),
+            title.clone(),
+            None,
+            None,
+            None,
+        );
+        let uuid = dummy.uuid;
+
+        let full_text = format!("{} {}", title, summary);
+
+        tx.execute(
+            "INSERT INTO events (uuid, tool, type, title, summary, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            libsql::params![uuid, "traz", "summary", title, summary, branch_name, parent_id, false, None::<String>, now.to_rfc3339()],
+        )
+        .await?;
+
+        let rollup_id = {
+            let mut rows = tx.query("SELECT last_insert_rowid()", ()).await?;
+            if let Some(row) = rows.next().await? {
+                row.get::<i64>(0)?
+            } else {
+                0
+            }
+        };
+
+        let embedding_bytes = if self.config.embeddings_enabled {
+            match tokio::task::spawn_blocking(move || traz_embeddings::embed_text(&full_text))
+                .await
+                .unwrap_or_else(|e| Err(anyhow::anyhow!("Task failed: {}", e)))
+            {
+                Ok(vec) => {
+                    let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
+                    Some(bytes)
+                }
+                Err(e) => {
+                    if !traz_embeddings::is_embedding_model_downloaded() {
+                        return Err(anyhow::anyhow!(
+                            "Embedding model is not downloaded. Run `traz init --with-embeddings` to generate semantic vectors."
+                        ));
+                    } else {
+                        return Err(anyhow::anyhow!(
+                            "Failed to generate event embedding: {}. Run `traz init --with-embeddings` to re-download if corrupted.",
+                            e
+                        ));
+                    }
+                }
+            }
+        } else {
+            None
+        };
+
+        if let Some(bytes) = embedding_bytes {
+            let model_version = "all-MiniLM-L6-v2";
+            let created_at = chrono::Utc::now().to_rfc3339();
+            tx.execute(
+                "INSERT INTO event_embeddings (event_id, vector, model_version, created_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                libsql::params![rollup_id, bytes, model_version, created_at],
+            )
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(rollup_id)
     }
 
     pub async fn backfill_missing_embeddings(&self) -> Result<usize> {

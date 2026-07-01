@@ -33,6 +33,10 @@ struct EventPayload {
     tags: Option<Vec<String>>,
     session_id: Option<String>,
     diff: Option<String>,
+    branch_name: Option<String>,
+    parent_event_id: Option<i64>,
+    is_checkpoint: Option<bool>,
+    agent_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -163,6 +167,18 @@ async fn create_event(
     }
     if let Some(diff) = payload.diff {
         event = event.with_diff(diff);
+    }
+    if let Some(branch_name) = payload.branch_name.filter(|s| !s.trim().is_empty()) {
+        event = event.with_branch(Some(branch_name));
+    }
+    if let Some(parent_event_id) = payload.parent_event_id {
+        event = event.with_parent(Some(parent_event_id));
+    }
+    if let Some(is_checkpoint) = payload.is_checkpoint {
+        event = event.with_checkpoint(is_checkpoint);
+    }
+    if let Some(agent_id) = payload.agent_id.filter(|s| !s.trim().is_empty()) {
+        event = event.with_agent(agent_id);
     }
 
     let db_clone = state.db.clone();

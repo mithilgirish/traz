@@ -337,11 +337,25 @@ async fn run_command(
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
 
             let since_dt = since.as_deref().and_then(parse_duration);
+            let branch_name = traz_integrations::git::get_current_branch_normalized();
+            let branch_refs_owned: Vec<String> = if let Some(ref bn) = branch_name {
+                db.get_ancestor_branches(bn)
+                    .await
+                    .unwrap_or_else(|_| vec!["main".to_string()])
+            } else {
+                Vec::new()
+            };
+            let branch_refs: Vec<&str> = branch_refs_owned.iter().map(|s| s.as_str()).collect();
             let filters = traz_db::SearchFilters {
                 tool: tool.as_deref(),
                 event_type: event_type.as_deref(),
                 tag: tag.as_deref(),
                 since: since_dt,
+                branch_names: if branch_refs.is_empty() {
+                    None
+                } else {
+                    Some(branch_refs)
+                },
             };
 
             let results = db.hybrid_search(&query, &filters, limit).await?;
@@ -428,7 +442,9 @@ async fn run_command(
                     .collect::<Vec<String>>()
             });
 
-            let mut event = Event::new(tool, event_type, title, summary, files_vec, None);
+            let current_branch = traz_integrations::git::get_current_branch_normalized();
+            let mut event = Event::new(tool, event_type, title, summary, files_vec, None)
+                .with_branch(current_branch);
             if let Some(t) = tags_vec {
                 event = event.with_tags(t);
             }
@@ -459,6 +475,7 @@ async fn run_command(
                 anyhow::bail!("Event title/message cannot be empty.");
             }
 
+            let current_branch = traz_integrations::git::get_current_branch_normalized();
             let mut event = Event::new(
                 tool.clone(),
                 event_type.clone(),
@@ -466,7 +483,8 @@ async fn run_command(
                 None,
                 None,
                 None,
-            );
+            )
+            .with_branch(current_branch);
             if diff {
                 match traz_integrations::git::get_uncommitted_diff() {
                     Ok(Some(d)) => {
@@ -541,6 +559,50 @@ async fn run_command(
             }
         }
 
+        Commands::Checkpoint { message } => {
+            let branch = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
+            let id = db.mark_checkpoint(&branch, message).await?;
+            print_success(&format!(
+                "Memory checkpoint created on branch '{}' (Event #{})",
+                branch, id
+            ));
+        }
+
+        Commands::Rollback => {
+            let branch = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
+            match db.rollback_to_checkpoint(&branch).await {
+                Ok(deleted) => {
+                    if deleted > 0 {
+                        print_success(&format!(
+                            "Rolled back memory on branch '{}'. Deleted {} subsequent events.",
+                            branch, deleted
+                        ));
+                    } else {
+                        print_info(&format!(
+                            "Already at the latest checkpoint on branch '{}'.",
+                            branch
+                        ));
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Commands::Rollup { agent_id, summary } => {
+            let branch = traz_integrations::git::get_current_branch_normalized();
+            match db.rollup_agent_memory(&agent_id, summary, branch).await {
+                Ok(id) => {
+                    print_success(&format!(
+                        "Rolled up subagent '{}' memory into new summary event #{}.",
+                        agent_id, id
+                    ));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
         Commands::Show { id, json } => match db.get_event(id).await? {
             Some(event) => {
                 if json {
@@ -597,8 +659,28 @@ async fn run_command(
             } else {
                 traz_core::OutputFormat::Markdown
             };
+            let branch_name = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
+            let branch_names = db
+                .get_ancestor_branches(&branch_name)
+                .await
+                .unwrap_or_else(|_| vec!["main".to_string()]);
+            let branch_refs: Vec<&str> = branch_names.iter().map(|s| s.as_str()).collect();
+            let branch_filter = if branch_refs.is_empty() {
+                None
+            } else {
+                Some(branch_refs)
+            };
+
             let ctx = db
-                .get_context_optimized(query.as_deref(), limit, format, budget, deduplicate)
+                .get_context_optimized(
+                    query.as_deref(),
+                    limit,
+                    format,
+                    budget,
+                    deduplicate,
+                    branch_filter,
+                )
                 .await?;
             if json {
                 let data = serde_json::json!({

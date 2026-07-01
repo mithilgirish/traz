@@ -13,6 +13,8 @@ const STABLE_TOOLS: &[&str] = &[
     "traz_context",
     "traz_stats",
     "traz_checkpoint",
+    "traz_rollback",
+    "traz_rollup",
     "traz_recap",
     "traz_show",
     "traz_diff",
@@ -215,7 +217,8 @@ fn build_tool_definitions(experimental: bool) -> Value {
                     "title":   { "type": "string", "description": "Short, descriptive title" },
                     "summary": { "type": "string", "description": "Longer explanation of reasoning and context" },
                     "files":   { "type": "array", "items": { "type": "string" }, "description": "List of files involved" },
-                    "diff":    { "type": "string", "description": "Unified diff or patch content for this change" }
+                    "diff":    { "type": "string", "description": "Unified diff or patch content for this change" },
+                    "agent_id": { "type": "string", "description": "Optional identifier for the subagent making the change" }
                 },
                 "required": ["tool", "type", "title"]
             }
@@ -248,6 +251,33 @@ fn build_tool_definitions(experimental: bool) -> Value {
                     "summary": { "type": "string", "description": "A dense summary of what was accomplished, what failed, and exact next steps." }
                 },
                 "required": ["summary"]
+            }
+        }),
+        json!({
+            "name": "traz_rollback",
+            "description": "Roll back the agent's memory to the last checkpoint on the current branch. Use this if you realize you've gone down a wrong path and want to 'forget' recent memory clutter.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }),
+        json!({
+            "name": "traz_rollup",
+            "description": "Roll up a subagent's memory into a single summary event, deleting their granular episodic memory to keep the main context window clean.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "The ID of the subagent to rollup."
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "A high-level summary of what the subagent accomplished."
+                    }
+                },
+                "required": ["agent_id", "summary"]
             }
         }),
         json!({
@@ -382,11 +412,27 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let type_filter = args.get("type").and_then(|v| v.as_str());
             let tag_filter = args.get("tag").and_then(|v| v.as_str());
 
+            let search_branch = traz_integrations::git::get_current_branch_normalized()
+                .filter(|b| !b.trim().is_empty());
+            let branch_names_owned: Vec<String> = if let Some(ref bn) = search_branch {
+                db.get_ancestor_branches(bn)
+                    .await
+                    .unwrap_or_else(|_| vec!["main".to_string()])
+            } else {
+                Vec::new()
+            };
+            let branch_refs: Vec<&str> = branch_names_owned.iter().map(|s| s.as_str()).collect();
+
             let filters = traz_db::SearchFilters {
                 tool: tool_filter,
                 event_type: type_filter,
                 tag: tag_filter,
                 since: None,
+                branch_names: if branch_refs.is_empty() {
+                    None
+                } else {
+                    Some(branch_refs)
+                },
             };
 
             match db.hybrid_search(query, &filters, 100).await {
@@ -448,10 +494,25 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|d| d.as_str())
                 .map(|s| s.to_string());
 
+            let agent_id = args
+                .get("agent_id")
+                .and_then(|a| a.as_str())
+                .map(|s| s.to_string());
+
             let mut event = Event::new(tool, event_type, title, summary, files, None);
             if let Some(d) = diff {
                 event = event.with_diff(d);
             }
+            if let Some(a) = agent_id.filter(|s| !s.trim().is_empty()) {
+                event = event.with_agent(a);
+            }
+            let branch = traz_integrations::git::get_current_branch_normalized();
+            if let Some(b) = branch {
+                event = event.with_branch(Some(b));
+            } else {
+                event = event.with_branch(None);
+            }
+
             match db.insert_event(&event).await {
                 Ok(id) => tool_ok(&format!("Event created with ID {}", id)),
                 Err(e) => tool_err(&e.to_string()),
@@ -479,8 +540,23 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|d| d.as_bool())
                 .unwrap_or(false);
 
+            let branch_name = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
+            let branch_names = db
+                .get_ancestor_branches(&branch_name)
+                .await
+                .unwrap_or_else(|_| vec!["main".to_string()]);
+            let branch_refs: Vec<&str> = branch_names.iter().map(|s| s.as_str()).collect();
+
             match db
-                .get_context_optimized(query, limit, format, max_tokens, deduplicate)
+                .get_context_optimized(
+                    query,
+                    limit,
+                    format,
+                    max_tokens,
+                    deduplicate,
+                    Some(branch_refs),
+                )
                 .await
             {
                 Ok(ctx) => tool_ok(&ctx),
@@ -580,24 +656,44 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let summary = args
                 .get("summary")
                 .and_then(|s| s.as_str())
-                .unwrap_or("No summary provided.")
-                .to_string();
+                .unwrap_or("No summary provided.");
 
-            let event = Event::new(
-                "ai-agent".to_string(),
-                "checkpoint".to_string(),
-                "Session Checkpoint".to_string(),
-                Some(summary),
-                None,
-                None,
-            );
-
-            match db.insert_event(&event).await {
-                Ok(id) => tool_ok(&format!(
-                    "Checkpoint created with ID {}. Please instruct the user to start a new chat session to clear context bloat.",
-                    id
-                )),
+            let branch = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
+            match db.mark_checkpoint(&branch, Some(summary.to_string())).await {
+                Ok(id) => tool_ok(&format!("Checkpoint created at event #{}", id)),
                 Err(e) => tool_err(&e.to_string()),
+            }
+        }
+        "traz_rollback" => {
+            let branch = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
+            match db.rollback_to_checkpoint(&branch).await {
+                Ok(deleted) => {
+                    if deleted > 0 {
+                        tool_ok(&format!("Rolled back memory. Forgot {} events.", deleted))
+                    } else {
+                        tool_ok("Already at the latest checkpoint.")
+                    }
+                }
+                Err(e) => tool_err(&e.to_string()),
+            }
+        }
+        "traz_rollup" => {
+            let agent_id = args.get("agent_id").and_then(|s| s.as_str());
+            let summary = args.get("summary").and_then(|s| s.as_str());
+
+            if let (Some(a), Some(s)) = (agent_id, summary) {
+                let branch = traz_integrations::git::get_current_branch_normalized();
+                match db.rollup_agent_memory(a, s.to_string(), branch).await {
+                    Ok(id) => tool_ok(&format!(
+                        "Rolled up subagent memory into summary event #{}",
+                        id
+                    )),
+                    Err(e) => tool_err(&e.to_string()),
+                }
+            } else {
+                tool_err("Missing required arguments: agent_id, summary")
             }
         }
         "traz_recap" => {
@@ -755,7 +851,7 @@ mod tests {
     async fn test_handle_tool_call_traz_search() {
         let (db, test_dir) = setup_test_env("search").await;
 
-        // Seed with event
+        // Seed with event on "main" so it's visible under branch-scoped search
         let event = Event::new(
             "aider".to_string(),
             "bug_fix".to_string(),
@@ -763,7 +859,8 @@ mod tests {
             Some("Fixed a crash when input was empty".to_string()),
             None,
             None,
-        );
+        )
+        .with_branch(Some("main".to_string()));
         db.insert_event(&event).await.unwrap();
 
         let search_payload = json!({
@@ -826,17 +923,14 @@ mod tests {
 
         let res = handle_tool_call(&db, &checkpoint_payload, false).await;
         let text = res["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("Checkpoint created with ID"));
+        assert!(text.contains("Checkpoint created at event #"));
 
         // Verify the database has the checkpoint event
         let events = db.get_recent_events(5).await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "checkpoint");
-        assert_eq!(events[0].title, "Session Checkpoint");
-        assert_eq!(
-            events[0].summary.as_deref(),
-            Some("Completed auth feature. All tests pass.")
-        );
+        assert_eq!(events[0].title, "Completed auth feature. All tests pass.");
+        assert_eq!(events[0].summary.as_deref(), None);
 
         cleanup_test_env(test_dir);
     }
@@ -879,7 +973,8 @@ mod tests {
             None,
             None,
             None,
-        );
+        )
+        .with_branch(Some("main".to_string()));
         db.insert_event(&event).await.unwrap();
 
         let context_payload = json!({
