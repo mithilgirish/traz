@@ -47,9 +47,28 @@ impl Db {
             }
         }
 
-        // Tune SQLite/libSQL for single-user, local-first workloads
+        // Tune SQLite/libSQL for single-user, local-first workloads.
+        // journal_mode=WAL is special: it returns a result row ("wal") rather than
+        // erroring on failure (e.g. read-only FS). We must query and verify the value.
+        {
+            let mut rows = conn.query("PRAGMA journal_mode = WAL;", ()).await;
+            match rows.as_mut() {
+                Err(e) => tracing::warn!("Failed to set PRAGMA journal_mode = WAL: {}", e),
+                Ok(rows) => match rows.next().await {
+                    Ok(Some(row)) => {
+                        let mode: String = row.get(0).unwrap_or_default();
+                        if mode != "wal" {
+                            tracing::warn!(
+                                "PRAGMA journal_mode = WAL not applied; actual mode: '{}'",
+                                mode
+                            );
+                        }
+                    }
+                    _ => tracing::warn!("PRAGMA journal_mode = WAL returned no result row"),
+                },
+            }
+        }
         for pragma in [
-            "PRAGMA journal_mode = WAL;",
             "PRAGMA synchronous = NORMAL;",
             "PRAGMA foreign_keys = ON;",
             "PRAGMA busy_timeout = 5000;",

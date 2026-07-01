@@ -607,7 +607,15 @@ pub fn build_optimized_context(
                 if budget.would_fit(&formatted) {
                     budget.consume(&formatted);
                     output.push_str(&formatted);
+                } else {
+                    let trunc = "...(truncated)\n";
+                    budget.consume(trunc);
+                    output.push_str(trunc);
                 }
+            } else {
+                let err = "(toon encoding failed)\n";
+                budget.consume(err);
+                output.push_str(err);
             }
         }
     }

@@ -269,9 +269,20 @@ impl Db {
             branches.push(b);
         }
 
-        // Always include main/master as global fallbacks just in case the DAG is disjointed
+        // Include main/master as fallbacks only when they actually have events,
+        // preventing phantom branch entries in queries on repos that don't use them.
         for default_branch in ["main", "master"] {
-            if !branches.contains(&default_branch.to_string()) {
+            if branches.contains(&default_branch.to_string()) {
+                continue;
+            }
+            let mut check = self
+                .conn
+                .query(
+                    "SELECT 1 FROM events WHERE branch_name = ?1 LIMIT 1",
+                    libsql::params![default_branch],
+                )
+                .await?;
+            if check.next().await?.is_some() {
                 branches.push(default_branch.to_string());
             }
         }

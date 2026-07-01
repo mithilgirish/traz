@@ -186,7 +186,7 @@ fn build_tool_definitions(experimental: bool) -> Value {
                 "type": "object",
                 "properties": {
                     "limit": { "type": "number", "description": "Number of events to retrieve (default 10, max 100)" },
-                    "format": { "type": "string", "description": "Output format: 'markdown' (default, human-readable) or 'dense' (AI-optimized, ~50-70% fewer tokens)" },
+                    "format": { "type": "string", "description": "Output format: 'markdown' (default, human-readable prose), 'dense' (AI-optimized, ~50-70% fewer tokens), or 'toon' (TOON encoding, maximally token-efficient)" },
                     "max_tokens": { "type": "number", "description": "Optional token budget. Output is truncated to fit within this many tokens." },
                     "deduplicate": { "type": "boolean", "description": "Merge near-duplicate events to save tokens (default false)" }
                 }
@@ -379,25 +379,20 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .unwrap_or(false);
 
             match db.get_recent_events(limit).await {
-                Ok(events) => match format {
-                    traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon => {
-                        let mut budget = match max_tokens {
-                            Some(n) => traz_core::TokenBudget::new(n),
-                            None => traz_core::TokenBudget::unlimited(),
-                        };
-                        let output = traz_core::build_optimized_context(
-                            events,
-                            format,
-                            &mut budget,
-                            deduplicate,
-                            Some("Recent Events"),
-                        );
-                        tool_ok(&output)
-                    }
-                    traz_core::OutputFormat::Markdown => {
-                        tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default())
-                    }
-                },
+                Ok(events) => {
+                    let mut budget = match max_tokens {
+                        Some(n) => traz_core::TokenBudget::new(n),
+                        None => traz_core::TokenBudget::unlimited(),
+                    };
+                    let output = traz_core::build_optimized_context(
+                        events,
+                        format,
+                        &mut budget,
+                        deduplicate,
+                        Some("Recent Events"),
+                    );
+                    tool_ok(&output)
+                }
                 Err(e) => tool_err(&e.to_string()),
             }
         }

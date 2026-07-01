@@ -87,14 +87,27 @@ pub async fn handle_hook(
     let data_dir = db.path().parent().unwrap_or_else(|| Path::new("."));
 
     // Phase 2: Worktree Session Isolation
-    let branch_name =
-        crate::git::get_current_branch_normalized().unwrap_or_else(|| "main".to_string());
-    let safe_branch_name = session_key_for_branch(&branch_name);
+    // Keep the raw Option so we know when we're outside a git repo.
+    let branch_name_opt = crate::git::get_current_branch_normalized();
+    // For session-file keying we need a stable string; use "_global" when outside git.
+    let session_key = branch_name_opt.as_deref().unwrap_or("_global");
+    let safe_branch_name = session_key_for_branch(session_key);
 
     let sessions_dir = data_dir.join("sessions");
     let _ = fs::create_dir_all(&sessions_dir);
     let active_session_path =
         sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
+
+    // Migrate legacy session file: before the "_global" key was introduced, out-of-git
+    // sessions were keyed under "main". Rename on first encounter so existing installs
+    // don't lose shared-memory state after upgrade.
+    if branch_name_opt.is_none() && !active_session_path.exists() {
+        let legacy_key = session_key_for_branch("main");
+        let legacy_path = sessions_dir.join(format!("active_session_{}.json", legacy_key));
+        if legacy_path.exists() {
+            let _ = fs::rename(&legacy_path, &active_session_path);
+        }
+    }
 
     // Shared Memory Layer: Track the most recently active session
     let mut other_session_context = String::new();
@@ -137,15 +150,23 @@ pub async fn handle_hook(
 
             let mut additional_context = String::new();
             if let Some(prompt) = input.prompt.as_deref().filter(|p| p.trim().len() >= 20) {
-                let branch_names_owned = db
-                    .get_ancestor_branches(&branch_name)
-                    .await
-                    .unwrap_or_else(|_| vec!["main".to_string()]);
-                let branch_refs: Vec<&str> =
-                    branch_names_owned.iter().map(|s| s.as_str()).collect();
-                let filters = traz_db::SearchFilters {
-                    branch_names: Some(branch_refs),
-                    ..Default::default()
+                let search_branch_names: Vec<String> = if let Some(ref bn) = branch_name_opt {
+                    db.get_ancestor_branches(bn)
+                        .await
+                        .unwrap_or_else(|_| vec![bn.clone()])
+                } else {
+                    Vec::new()
+                };
+                let search_branch_refs: Vec<&str> =
+                    search_branch_names.iter().map(|s| s.as_str()).collect();
+                let filters = if search_branch_refs.is_empty() {
+                    // Outside git — search all branches (NULL + named)
+                    traz_db::SearchFilters::default()
+                } else {
+                    traz_db::SearchFilters {
+                        branch_names: Some(search_branch_refs),
+                        ..Default::default()
+                    }
                 };
                 let matches = db
                     .hybrid_search(prompt, &filters, 3)
@@ -187,12 +208,20 @@ pub async fn handle_hook(
 
         "context" => {
             let limit = 10;
-            let branch_names_owned = db
-                .get_ancestor_branches(&branch_name)
-                .await
-                .unwrap_or_else(|_| vec!["main".to_string()]);
-            let branch_refs: Vec<&str> = branch_names_owned.iter().map(|s| s.as_str()).collect();
-            let branch_filter = Some(branch_refs);
+            let ctx_branch_names: Vec<String> = if let Some(ref bn) = branch_name_opt {
+                db.get_ancestor_branches(bn)
+                    .await
+                    .unwrap_or_else(|_| vec![bn.clone()])
+            } else {
+                Vec::new()
+            };
+            let ctx_branch_refs: Vec<&str> = ctx_branch_names.iter().map(|s| s.as_str()).collect();
+            let branch_filter: Option<Vec<&str>> = if ctx_branch_refs.is_empty() {
+                // Outside git — no branch filter so NULL-branch events are included
+                None
+            } else {
+                Some(ctx_branch_refs)
+            };
             match db
                 .get_context_optimized(
                     None,
@@ -261,7 +290,7 @@ pub async fn handle_hook(
                     _ => None,
                 };
 
-                let branch = Some(branch_name.clone());
+                let branch = branch_name_opt.clone();
                 let event =
                     Event::new(platform.to_string(), event_type, title, summary, None, None)
                         .with_session(input.session_id.clone().unwrap_or_default())
@@ -283,7 +312,7 @@ pub async fn handle_hook(
                     .edits
                     .as_ref()
                     .map(|e| serde_json::to_string_pretty(e).unwrap_or_default());
-                let branch = Some(branch_name.clone());
+                let branch = branch_name_opt.clone();
                 let event = Event::new(
                     platform.to_string(),
                     "refactor".to_string(),
@@ -367,7 +396,7 @@ mod tests {
         let sessions_dir = test_dir.join("sessions");
         let _ = std::fs::create_dir_all(&sessions_dir);
         let branch_name =
-            crate::git::get_current_branch_normalized().unwrap_or_else(|| "default".to_string());
+            crate::git::get_current_branch_normalized().unwrap_or_else(|| "main".to_string());
         let safe_branch_name = session_key_for_branch(&branch_name);
         let active_session_path =
             sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
@@ -427,7 +456,7 @@ mod tests {
         let sessions_dir = test_dir.join("sessions");
         let _ = std::fs::create_dir_all(&sessions_dir);
         let branch_name =
-            crate::git::get_current_branch_normalized().unwrap_or_else(|| "default".to_string());
+            crate::git::get_current_branch_normalized().unwrap_or_else(|| "main".to_string());
         let safe_branch_name = session_key_for_branch(&branch_name);
         let active_session_path =
             sessions_dir.join(format!("active_session_{}.json", safe_branch_name));

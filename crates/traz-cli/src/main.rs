@@ -591,10 +591,7 @@ async fn run_command(
         }
 
         Commands::Rollup { agent_id, summary } => {
-            let branch = Some(
-                traz_integrations::git::get_current_branch_normalized()
-                    .unwrap_or_else(|| "main".to_string()),
-            );
+            let branch = traz_integrations::git::get_current_branch_normalized();
             match db.rollup_agent_memory(&agent_id, summary, branch).await {
                 Ok(id) => {
                     print_success(&format!(
