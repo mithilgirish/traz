@@ -321,7 +321,11 @@ mod tests {
         let (mut app, test_dir) = setup_test_app("exit").await;
 
         // Esc or 'q' in List mode should exit
-        assert!(handle_input(&mut app, press(KeyCode::Char('q'))).await.unwrap());
+        assert!(
+            handle_input(&mut app, press(KeyCode::Char('q')))
+                .await
+                .unwrap()
+        );
         assert!(handle_input(&mut app, press(KeyCode::Esc)).await.unwrap());
 
         let _ = fs::remove_dir_all(test_dir);
@@ -335,19 +339,27 @@ mod tests {
         assert_eq!(mut_app.selected, 0);
 
         // Press down
-        handle_input(&mut mut_app, press(KeyCode::Char('j'))).await.unwrap();
+        handle_input(&mut mut_app, press(KeyCode::Char('j')))
+            .await
+            .unwrap();
         assert_eq!(mut_app.selected, 1);
 
         // Press down again (saturates at length - 1, which is 1)
-        handle_input(&mut mut_app, press(KeyCode::Down)).await.unwrap();
+        handle_input(&mut mut_app, press(KeyCode::Down))
+            .await
+            .unwrap();
         assert_eq!(mut_app.selected, 1);
 
         // Press up
-        handle_input(&mut mut_app, press(KeyCode::Char('k'))).await.unwrap();
+        handle_input(&mut mut_app, press(KeyCode::Char('k')))
+            .await
+            .unwrap();
         assert_eq!(mut_app.selected, 0);
 
         // Press up again (saturates at 0)
-        handle_input(&mut mut_app, press(KeyCode::Up)).await.unwrap();
+        handle_input(&mut mut_app, press(KeyCode::Up))
+            .await
+            .unwrap();
         assert_eq!(mut_app.selected, 0);
 
         let _ = fs::remove_dir_all(test_dir);
@@ -358,19 +370,27 @@ mod tests {
         let (mut app, test_dir) = setup_test_app("search").await;
 
         // Press '/' to search
-        handle_input(&mut app, press(KeyCode::Char('/'))).await.unwrap();
+        handle_input(&mut app, press(KeyCode::Char('/')))
+            .await
+            .unwrap();
         assert_eq!(app.mode, AppMode::Search);
         assert_eq!(app.search_query, "");
 
         // Type characters
-        handle_input(&mut app, press(KeyCode::Char('a'))).await.unwrap();
+        handle_input(&mut app, press(KeyCode::Char('a')))
+            .await
+            .unwrap();
         assert_eq!(app.search_query, "a");
 
-        handle_input(&mut app, press(KeyCode::Char('b'))).await.unwrap();
+        handle_input(&mut app, press(KeyCode::Char('b')))
+            .await
+            .unwrap();
         assert_eq!(app.search_query, "ab");
 
         // Backspace
-        handle_input(&mut app, press(KeyCode::Backspace)).await.unwrap();
+        handle_input(&mut app, press(KeyCode::Backspace))
+            .await
+            .unwrap();
         assert_eq!(app.search_query, "a");
 
         // Press Enter to confirm search query and return to list mode
@@ -379,7 +399,9 @@ mod tests {
         assert_eq!(app.search_query, "a");
 
         // Esc clears search query and returns to list mode
-        handle_input(&mut app, press(KeyCode::Char('/'))).await.unwrap();
+        handle_input(&mut app, press(KeyCode::Char('/')))
+            .await
+            .unwrap();
         assert_eq!(app.mode, AppMode::Search);
         handle_input(&mut app, press(KeyCode::Esc)).await.unwrap();
         assert_eq!(app.mode, AppMode::List);
@@ -393,12 +415,16 @@ mod tests {
         let (mut app, test_dir) = setup_test_app("settings").await;
 
         // Press 's' to enter settings
-        handle_input(&mut app, press(KeyCode::Char('s'))).await.unwrap();
+        handle_input(&mut app, press(KeyCode::Char('s')))
+            .await
+            .unwrap();
         assert_eq!(app.mode, AppMode::Settings);
         assert_eq!(app.selected_setting, 0);
 
         // Select next setting
-        handle_input(&mut app, press(KeyCode::Char('j'))).await.unwrap();
+        handle_input(&mut app, press(KeyCode::Char('j')))
+            .await
+            .unwrap();
         assert_eq!(app.selected_setting, 1);
 
         // Press Esc to exit settings

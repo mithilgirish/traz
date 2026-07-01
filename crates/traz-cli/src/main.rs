@@ -255,7 +255,8 @@ async fn run_command(
             deduplicate,
         } => {
             let events = if tool.is_some() || event_type.is_some() {
-                db.get_filtered_events(limit, tool, event_type, None, None).await?
+                db.get_filtered_events(limit, tool, event_type, None, None)
+                    .await?
             } else {
                 db.get_recent_events(limit).await?
             };
@@ -290,7 +291,9 @@ async fn run_command(
             let limit = 100;
             let since = chrono::Utc::now()
                 - chrono::Duration::try_hours(hours as i64).unwrap_or(chrono::Duration::zero());
-            let events = db.get_filtered_events(limit, None, None, Some(since), None).await?;
+            let events = db
+                .get_filtered_events(limit, None, None, Some(since), None)
+                .await?;
             if events.is_empty() {
                 print_empty(&format!(
                     "No events found in the last {} hours. You're starting fresh!",
@@ -594,8 +597,9 @@ async fn run_command(
             } else {
                 traz_core::OutputFormat::Markdown
             };
-            let ctx =
-                db.get_context_optimized(query.as_deref(), limit, format, budget, deduplicate).await?;
+            let ctx = db
+                .get_context_optimized(query.as_deref(), limit, format, budget, deduplicate)
+                .await?;
             if json {
                 let data = serde_json::json!({
                     "context": ctx,

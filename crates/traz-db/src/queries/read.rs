@@ -212,7 +212,8 @@ impl Db {
     /// Generate a structured context summary for AI agents.
     pub async fn get_context_summary(&self, query: Option<&str>, limit: u32) -> Result<String> {
         // Backward-compatible wrapper: markdown format, unlimited budget, no dedup.
-        self.get_context_optimized(query, limit, traz_core::OutputFormat::Markdown, None, false).await
+        self.get_context_optimized(query, limit, traz_core::OutputFormat::Markdown, None, false)
+            .await
     }
 
     /// Generate a token-optimized context summary for AI agents.
@@ -281,7 +282,9 @@ impl Db {
         // ── Fetch events ────────────────────────────────────────
         let is_rag = query.is_some();
         let events = if let Some(q) = query {
-            let search_results = self.hybrid_search(q, &SearchFilters::default(), limit).await?;
+            let search_results = self
+                .hybrid_search(q, &SearchFilters::default(), limit)
+                .await?;
             search_results.into_iter().map(|(e, _)| e).collect()
         } else {
             self.get_recent_events(limit).await?
@@ -325,7 +328,12 @@ impl Db {
         // TODO v0.2: use sqlite-vec extension for ANN search
 
         let text = query.to_string();
-        let query_vec = match tokio::task::spawn_blocking(move || traz_embeddings::embed_text(&text)).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Task failed: {}", e))) {
+        let query_vec = match tokio::task::spawn_blocking(move || {
+            traz_embeddings::embed_text(&text)
+        })
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task failed: {}", e)))
+        {
             Ok(vec) => vec,
             Err(e) => {
                 if !traz_embeddings::is_embedding_model_downloaded() {
@@ -343,7 +351,10 @@ impl Db {
 
         let mut top_matches = Vec::new();
         {
-            let mut stmt = self.conn.prepare("SELECT event_id, vector FROM event_embeddings").await?;
+            let mut stmt = self
+                .conn
+                .prepare("SELECT event_id, vector FROM event_embeddings")
+                .await?;
             let mut rows = stmt.query(()).await?;
 
             while let Some(row) = rows.next().await? {

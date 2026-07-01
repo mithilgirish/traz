@@ -51,7 +51,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(db: Db, events: Vec<Event>, total_count: i64, custom_theme_path: std::path::PathBuf) -> Self {
+    pub fn new(
+        db: Db,
+        events: Vec<Event>,
+        total_count: i64,
+        custom_theme_path: std::path::PathBuf,
+    ) -> Self {
         Self {
             all_events: events.clone(),
             events,

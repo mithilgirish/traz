@@ -37,7 +37,8 @@ pub(crate) fn row_to_event(row: &libsql::Row) -> Result<Event, libsql::Error> {
     let files: Option<Vec<String>> = files_str.and_then(|s| serde_json::from_str(&s).ok());
 
     let metadata_str: Option<String> = row.get(7)?;
-    let metadata: Option<serde_json::Value> = metadata_str.and_then(|s| serde_json::from_str(&s).ok());
+    let metadata: Option<serde_json::Value> =
+        metadata_str.and_then(|s| serde_json::from_str(&s).ok());
 
     let tags_str: Option<String> = row.get(8)?;
     let tags: Option<Vec<String>> = tags_str.and_then(|s| serde_json::from_str(&s).ok());

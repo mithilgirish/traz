@@ -43,7 +43,10 @@ impl Db {
                 event.title,
                 event.summary.as_deref().unwrap_or_default()
             );
-            match tokio::task::spawn_blocking(move || traz_embeddings::embed_text(&text)).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Task failed: {}", e))) {
+            match tokio::task::spawn_blocking(move || traz_embeddings::embed_text(&text))
+                .await
+                .unwrap_or_else(|e| Err(anyhow::anyhow!("Task failed: {}", e)))
+            {
                 Ok(vec) => {
                     let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
                     Some(bytes)
@@ -90,12 +93,15 @@ impl Db {
         if let Some(bytes) = embedding_bytes {
             let model_version = "all-MiniLM-L6-v2";
             let created_at = chrono::Utc::now().to_rfc3339();
-            if let Err(e) = self.conn.execute(
-                "INSERT INTO event_embeddings (event_id, vector, model_version, created_at)
+            if let Err(e) = self
+                .conn
+                .execute(
+                    "INSERT INTO event_embeddings (event_id, vector, model_version, created_at)
                  VALUES (?1, ?2, ?3, ?4)",
-                libsql::params![event_id, bytes, model_version, created_at],
-            )
-            .await {
+                    libsql::params![event_id, bytes, model_version, created_at],
+                )
+                .await
+            {
                 eprintln!("Warning: Failed to insert event embedding: {}", e);
             }
         }
@@ -105,20 +111,30 @@ impl Db {
 
     /// Delete an event by its ID. Returns true if a row was deleted.
     pub async fn delete_event(&self, id: i64) -> Result<bool> {
-        let affected = self.conn.execute("DELETE FROM events WHERE id = ?1", libsql::params![id]).await?;
+        let affected = self
+            .conn
+            .execute("DELETE FROM events WHERE id = ?1", libsql::params![id])
+            .await?;
         Ok(affected > 0)
     }
 
     /// Delete all events that occurred strictly after the given event ID.
     /// Returns the number of events deleted.
     pub async fn delete_events_after(&self, id: i64) -> Result<usize> {
-        let affected = self.conn.execute("DELETE FROM events WHERE id > ?1", libsql::params![id]).await?;
+        let affected = self
+            .conn
+            .execute("DELETE FROM events WHERE id > ?1", libsql::params![id])
+            .await?;
         Ok(affected as usize)
     }
 
     /// Compress older events into a single "epoch" event to save context.
     /// Returns a tuple of (number of events compressed, new epoch event ID).
-    pub async fn compress_events(&self, older_than_days: u32, summary: String) -> Result<(usize, i64)> {
+    pub async fn compress_events(
+        &self,
+        older_than_days: u32,
+        summary: String,
+    ) -> Result<(usize, i64)> {
         let tx = self.conn.transaction().await?;
 
         // 1. Find how many events we are compressing.
@@ -166,7 +182,8 @@ impl Db {
             "INSERT INTO events (uuid, tool, type, title, summary, timestamp) 
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             libsql::params![uuid, "traz", "epoch", title, summary, now.to_rfc3339()],
-        ).await?;
+        )
+        .await?;
 
         let epoch_id = {
             let mut rows = tx.query("SELECT last_insert_rowid()", ()).await?;
@@ -189,10 +206,13 @@ impl Db {
 
         let mut missing_ids = Vec::new();
         {
-            let mut stmt = self.conn.prepare(
-                "SELECT id FROM events 
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT id FROM events 
                  WHERE id NOT IN (SELECT event_id FROM event_embeddings)",
-            ).await?;
+                )
+                .await?;
             let mut rows = stmt.query(()).await?;
             while let Some(row) = rows.next().await? {
                 let id: i64 = row.get(0)?;
@@ -214,7 +234,8 @@ impl Db {
             let mut batch = Vec::new();
             {
                 let mut stmt = self.conn.prepare(&sql).await?;
-                let params: Vec<libsql::Value> = chunk.iter().map(|&id| libsql::Value::from(id)).collect();
+                let params: Vec<libsql::Value> =
+                    chunk.iter().map(|&id| libsql::Value::from(id)).collect();
                 let mut rows = stmt.query(params).await?;
                 while let Some(row) = rows.next().await? {
                     let id: i64 = row.get(0)?;
@@ -227,7 +248,10 @@ impl Db {
             let mut embeddings_batch = Vec::new();
             for (id, title, summary) in batch {
                 let text = format!("{} {}", title, summary.as_deref().unwrap_or_default());
-                match tokio::task::spawn_blocking(move || traz_embeddings::embed_text(&text)).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Task failed: {}", e))) {
+                match tokio::task::spawn_blocking(move || traz_embeddings::embed_text(&text))
+                    .await
+                    .unwrap_or_else(|e| Err(anyhow::anyhow!("Task failed: {}", e)))
+                {
                     Ok(vec) => {
                         let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
                         embeddings_batch.push((id, bytes));

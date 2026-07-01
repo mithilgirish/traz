@@ -479,7 +479,10 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|d| d.as_bool())
                 .unwrap_or(false);
 
-            match db.get_context_optimized(query, limit, format, max_tokens, deduplicate).await {
+            match db
+                .get_context_optimized(query, limit, format, max_tokens, deduplicate)
+                .await
+            {
                 Ok(ctx) => tool_ok(&ctx),
                 Err(e) => tool_err(&e.to_string()),
             }
@@ -603,7 +606,10 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let since = chrono::Utc::now()
                 - chrono::Duration::try_hours(hours).unwrap_or(chrono::Duration::zero());
 
-            match db.get_filtered_events(100, None, None, Some(since), None).await {
+            match db
+                .get_filtered_events(100, None, None, Some(since), None)
+                .await
+            {
                 Ok(events) if events.is_empty() => tool_ok(&format!(
                     "No events in the last {} hours. You're starting fresh!",
                     hours

@@ -6,7 +6,10 @@ mod tests {
     use traz_core::Event;
 
     async fn test_db() -> Db {
-        let db_builder = libsql::Builder::new_local(":memory:").build().await.unwrap();
+        let db_builder = libsql::Builder::new_local(":memory:")
+            .build()
+            .await
+            .unwrap();
         let conn = db_builder.connect().unwrap();
         let db = Db {
             conn,
@@ -125,9 +128,15 @@ mod tests {
     #[tokio::test]
     async fn test_timeline_order() {
         let db = test_db().await;
-        db.insert_event(&sample_event("t1", "f", "First")).await.unwrap();
-        db.insert_event(&sample_event("t2", "f", "Second")).await.unwrap();
-        db.insert_event(&sample_event("t3", "f", "Third")).await.unwrap();
+        db.insert_event(&sample_event("t1", "f", "First"))
+            .await
+            .unwrap();
+        db.insert_event(&sample_event("t2", "f", "Second"))
+            .await
+            .unwrap();
+        db.insert_event(&sample_event("t3", "f", "Third"))
+            .await
+            .unwrap();
 
         let timeline = db.get_timeline(10).await.unwrap();
         assert_eq!(timeline.len(), 3);
@@ -139,8 +148,12 @@ mod tests {
     #[tokio::test]
     async fn test_recent_events_order() {
         let db = test_db().await;
-        db.insert_event(&sample_event("t1", "f", "First")).await.unwrap();
-        db.insert_event(&sample_event("t2", "f", "Second")).await.unwrap();
+        db.insert_event(&sample_event("t1", "f", "First"))
+            .await
+            .unwrap();
+        db.insert_event(&sample_event("t2", "f", "Second"))
+            .await
+            .unwrap();
 
         let recent = db.get_recent_events(10).await.unwrap();
         // Recent is newest-first
@@ -279,7 +292,10 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires downloading embedding model"]
     async fn test_context_summary_rag() {
-        let db_builder = libsql::Builder::new_local(":memory:").build().await.unwrap();
+        let db_builder = libsql::Builder::new_local(":memory:")
+            .build()
+            .await
+            .unwrap();
         let conn = db_builder.connect().unwrap();
         let db = Db {
             conn,
@@ -308,7 +324,10 @@ mod tests {
         .await
         .unwrap();
 
-        let ctx = db.get_context_summary(Some("auth login"), 10).await.unwrap();
+        let ctx = db
+            .get_context_summary(Some("auth login"), 10)
+            .await
+            .unwrap();
         assert!(ctx.contains("Relevant Context (RAG"));
         assert!(ctx.contains("Built authentication system"));
         assert!(!ctx.contains("CSS layout"));
@@ -382,7 +401,10 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires downloading embedding model"]
     async fn test_semantic_search() {
-        let db_builder = libsql::Builder::new_local(":memory:").build().await.unwrap();
+        let db_builder = libsql::Builder::new_local(":memory:")
+            .build()
+            .await
+            .unwrap();
         let conn = db_builder.connect().unwrap();
         let db = Db {
             conn,

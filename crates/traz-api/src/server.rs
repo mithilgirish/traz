@@ -171,13 +171,15 @@ async fn list_events(
     let limit = filter.limit.unwrap_or(50).min(500);
 
     let db_clone = state.db.clone();
-    let result = db_clone.get_filtered_events(
-        limit,
-        filter.tool,
-        filter.event_type,
-        filter.since,
-        filter.until,
-    ).await;
+    let result = db_clone
+        .get_filtered_events(
+            limit,
+            filter.tool,
+            filter.event_type,
+            filter.since,
+            filter.until,
+        )
+        .await;
 
     match result {
         Ok(events) => (StatusCode::OK, Json(events)).into_response(),

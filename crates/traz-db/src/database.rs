@@ -26,12 +26,16 @@ impl Db {
             }
         }
 
-        let db_path_str = db_path.to_str().context("Database path is not valid UTF-8")?;
+        let db_path_str = db_path
+            .to_str()
+            .context("Database path is not valid UTF-8")?;
         let db = libsql::Builder::new_local(db_path_str)
             .build()
             .await
             .context("Failed to build local libSQL database")?;
-        let conn = db.connect().context("Failed to connect to local libSQL database")?;
+        let conn = db
+            .connect()
+            .context("Failed to connect to local libSQL database")?;
 
         #[cfg(unix)]
         {
@@ -59,7 +63,10 @@ impl Db {
             path: db_path.to_path_buf(),
             config,
         };
-        db_instance.migrate().await.context("Failed to run database migrations")?;
+        db_instance
+            .migrate()
+            .await
+            .context("Failed to run database migrations")?;
 
         Ok(db_instance)
     }
@@ -71,18 +78,20 @@ impl Db {
 
     /// Check if the compiled SQLite version has FTS5 support enabled.
     pub async fn check_fts5_support(&self) -> bool {
-        self.conn.execute_batch(
-            "CREATE VIRTUAL TABLE temp.temp_fts USING fts5(dummy);
+        self.conn
+            .execute_batch(
+                "CREATE VIRTUAL TABLE temp.temp_fts USING fts5(dummy);
              DROP TABLE temp.temp_fts;",
-        )
-        .await
-        .is_ok()
+            )
+            .await
+            .is_ok()
     }
 
     pub async fn migrate(&self) -> Result<()> {
         // Step 1: Create table if completely new
-        self.conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS events (
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS events (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 uuid        TEXT,
                 tool        TEXT    NOT NULL,
@@ -97,8 +106,8 @@ impl Db {
                 timestamp   TEXT    NOT NULL,
                 created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );",
-        )
-        .await?;
+            )
+            .await?;
 
         // Step 2: Add columns that may be missing from older schemas
         self.add_column_if_missing("uuid").await;
@@ -108,16 +117,18 @@ impl Db {
         self.add_column_if_missing("diff").await;
 
         // Step 3: Create indexes (safe now that all columns exist)
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_tool      ON events(tool);
+        self.conn
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_events_tool      ON events(tool);
              CREATE INDEX IF NOT EXISTS idx_events_type      ON events(type);
              CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);",
-        )
-        .await?;
+            )
+            .await?;
 
         // Step 4: Create event_embeddings table
-        self.conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS event_embeddings (
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS event_embeddings (
                 id INTEGER PRIMARY KEY,
                 event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
                 vector BLOB NOT NULL,
@@ -125,26 +136,28 @@ impl Db {
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_embeddings_event_id ON event_embeddings(event_id);",
-        )
-        .await?;
+            )
+            .await?;
 
         Ok(())
     }
 
     async fn add_column_if_missing(&self, column: &str) {
-        let has_col = match self.conn.prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name=?1").await {
-            Ok(mut stmt) => {
-                match stmt.query([column]).await {
-                    Ok(mut rows) => {
-                        if let Ok(Some(row)) = rows.next().await {
-                            row.get::<i64>(0).map(|n| n > 0).unwrap_or(false)
-                        } else {
-                            false
-                        }
+        let has_col = match self
+            .conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name=?1")
+            .await
+        {
+            Ok(mut stmt) => match stmt.query([column]).await {
+                Ok(mut rows) => {
+                    if let Ok(Some(row)) = rows.next().await {
+                        row.get::<i64>(0).map(|n| n > 0).unwrap_or(false)
+                    } else {
+                        false
                     }
-                    Err(_) => false,
                 }
-            }
+                Err(_) => false,
+            },
             Err(_) => false,
         };
 

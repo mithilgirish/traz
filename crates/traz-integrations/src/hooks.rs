@@ -56,7 +56,12 @@ pub struct ActiveSessionState {
 ///
 /// Parses standard input payload, updates the shared session registry, logs events,
 /// and returns the stdout JSON payload for context injection.
-pub async fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) -> Result<String> {
+pub async fn handle_hook(
+    db: &Db,
+    platform: &str,
+    event_type: &str,
+    stdin_data: &str,
+) -> Result<String> {
     let input: HookInput = serde_json::from_str(stdin_data).unwrap_or(HookInput {
         session_id: None,
         cwd: None,
@@ -115,7 +120,10 @@ pub async fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: 
             let mut additional_context = String::new();
             if let Some(prompt) = input.prompt.as_deref().filter(|p| p.trim().len() >= 20) {
                 let filters = traz_db::SearchFilters::default();
-                let matches = db.hybrid_search(prompt, &filters, 3).await.unwrap_or_default();
+                let matches = db
+                    .hybrid_search(prompt, &filters, 3)
+                    .await
+                    .unwrap_or_default();
                 if !matches.is_empty() {
                     additional_context.push_str("### Relevant Historical Context:\n");
                     for (event, _) in matches {
@@ -152,7 +160,10 @@ pub async fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: 
 
         "context" => {
             let limit = 10;
-            let context_summary = db.get_context_summary(None, limit).await.unwrap_or_default();
+            let context_summary = db
+                .get_context_summary(None, limit)
+                .await
+                .unwrap_or_default();
             HookOutput {
                 hookSpecificOutput: Some(HookSpecificOutput {
                     hookEventName: "SessionStart".to_string(),
@@ -317,7 +328,9 @@ mod tests {
             "prompt": "Hello this is a test prompt"
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload).await.unwrap();
+        let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload)
+            .await
+            .unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
 
         assert!(res.should_continue);
@@ -369,7 +382,9 @@ mod tests {
             "prompt": "Hello this is a test prompt"
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload).await.unwrap();
+        let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload)
+            .await
+            .unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
 
         assert!(res.should_continue);
@@ -411,7 +426,9 @@ mod tests {
             "exit_code": 0
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "observation", stdin_payload).await.unwrap();
+        let res_str = handle_hook(&db, "cursor", "observation", stdin_payload)
+            .await
+            .unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
         assert!(res.should_continue);
 
@@ -439,7 +456,9 @@ mod tests {
             "edits": { "insertions": 10 }
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "file-edit", stdin_payload).await.unwrap();
+        let res_str = handle_hook(&db, "cursor", "file-edit", stdin_payload)
+            .await
+            .unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
         assert!(res.should_continue);
 
@@ -468,7 +487,9 @@ mod tests {
             "last_assistant_message": "Completed implementing tests."
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "summarize", stdin_payload).await.unwrap();
+        let res_str = handle_hook(&db, "cursor", "summarize", stdin_payload)
+            .await
+            .unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
         assert!(res.should_continue);
 
@@ -492,7 +513,9 @@ mod tests {
     async fn test_handle_hook_invalid_stdin() {
         let (db, test_dir) = setup_test_env("invalid_stdin").await;
 
-        let res_str = handle_hook(&db, "cursor", "session-init", "{invalid-json}").await.unwrap();
+        let res_str = handle_hook(&db, "cursor", "session-init", "{invalid-json}")
+            .await
+            .unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
         assert!(res.should_continue);
         assert!(res.hookSpecificOutput.is_none());
