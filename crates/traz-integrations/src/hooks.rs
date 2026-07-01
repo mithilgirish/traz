@@ -226,10 +226,13 @@ pub async fn handle_hook(
                     _ => None,
                 };
 
+                let branch = crate::git::get_current_branch()
+                    .ok()
+                    .filter(|b| !b.trim().is_empty());
                 let event =
                     Event::new(platform.to_string(), event_type, title, summary, None, None)
                         .with_session(input.session_id.clone().unwrap_or_default())
-                        .with_branch(crate::git::get_current_branch().ok());
+                        .with_branch(branch);
                 let _ = db.insert_event(&event).await;
             }
 
@@ -247,6 +250,9 @@ pub async fn handle_hook(
                     .edits
                     .as_ref()
                     .map(|e| serde_json::to_string_pretty(e).unwrap_or_default());
+                let branch = crate::git::get_current_branch()
+                    .ok()
+                    .filter(|b| !b.trim().is_empty());
                 let event = Event::new(
                     platform.to_string(),
                     "refactor".to_string(),
@@ -256,7 +262,7 @@ pub async fn handle_hook(
                     None,
                 )
                 .with_session(input.session_id.clone().unwrap_or_default())
-                .with_branch(crate::git::get_current_branch().ok());
+                .with_branch(branch);
                 let _ = db.insert_event(&event).await;
             }
 

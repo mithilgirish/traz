@@ -337,12 +337,27 @@ async fn run_command(
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
 
             let since_dt = since.as_deref().and_then(parse_duration);
+            let branch_name = traz_integrations::git::get_current_branch()
+                .ok()
+                .filter(|b| !b.trim().is_empty());
+            let branch_refs_owned: Vec<String> = if let Some(ref bn) = branch_name {
+                db.get_ancestor_branches(bn)
+                    .await
+                    .unwrap_or_else(|_| vec!["main".to_string()])
+            } else {
+                Vec::new()
+            };
+            let branch_refs: Vec<&str> = branch_refs_owned.iter().map(|s| s.as_str()).collect();
             let filters = traz_db::SearchFilters {
                 tool: tool.as_deref(),
                 event_type: event_type.as_deref(),
                 tag: tag.as_deref(),
                 since: since_dt,
-                branch_names: None,
+                branch_names: if branch_refs.is_empty() {
+                    None
+                } else {
+                    Some(branch_refs)
+                },
             };
 
             let results = db.hybrid_search(&query, &filters, limit).await?;
@@ -429,7 +444,9 @@ async fn run_command(
                     .collect::<Vec<String>>()
             });
 
-            let current_branch = traz_integrations::git::get_current_branch().ok();
+            let current_branch = traz_integrations::git::get_current_branch()
+                .ok()
+                .filter(|b| !b.trim().is_empty());
             let mut event = Event::new(tool, event_type, title, summary, files_vec, None)
                 .with_branch(current_branch);
             if let Some(t) = tags_vec {
@@ -557,8 +574,10 @@ async fn run_command(
         }
 
         Commands::Rollback => {
-            let branch =
-                traz_integrations::git::get_current_branch().unwrap_or_else(|_| "main".to_string());
+            let branch = traz_integrations::git::get_current_branch()
+                .ok()
+                .filter(|b| !b.trim().is_empty())
+                .unwrap_or_else(|| "main".to_string());
             match db.rollback_to_checkpoint(&branch).await {
                 Ok(deleted) => {
                     if deleted > 0 {
@@ -573,9 +592,7 @@ async fn run_command(
                         ));
                     }
                 }
-                Err(e) => {
-                    eprintln!("Failed to rollback: {}", e);
-                }
+                Err(e) => return Err(e),
             }
         }
 

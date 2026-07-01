@@ -242,9 +242,16 @@ impl Db {
     pub async fn get_ancestor_branches(&self, branch_name: &str) -> Result<Vec<String>> {
         let sql = r#"
             WITH RECURSIVE
+              anchor(id, parent_id, branch_name) AS (
+                SELECT id, parent_event_id, branch_name
+                FROM events
+                WHERE id = (
+                  SELECT id FROM events WHERE branch_name = ?1
+                  ORDER BY timestamp DESC LIMIT 1
+                )
+              ),
               ancestor_events(id, parent_id, branch_name) AS (
-                SELECT id, parent_event_id, branch_name FROM events 
-                WHERE branch_name = ?1 ORDER BY timestamp DESC LIMIT 1
+                SELECT id, parent_id, branch_name FROM anchor
                 UNION ALL
                 SELECT e.id, e.parent_event_id, e.branch_name
                 FROM events e
@@ -365,7 +372,17 @@ impl Db {
                     self.get_recent_events_for_branch(limit, branches[0])
                         .await?
                 } else {
-                    self.get_recent_events(limit).await?
+                    // Fetch per branch and merge, capped at limit total
+                    let per_branch = (limit / branches.len() as u32).max(1);
+                    let mut merged = Vec::new();
+                    for b in branches {
+                        let mut evs = self.get_recent_events_for_branch(per_branch, b).await?;
+                        merged.append(&mut evs);
+                    }
+                    // Re-sort by timestamp descending and cap
+                    merged.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
+                    merged.truncate(limit as usize);
+                    merged
                 }
             } else {
                 self.get_recent_events(limit).await?
@@ -443,7 +460,7 @@ impl Db {
                 let sql = format!(
                     "SELECT ee.event_id, ee.vector FROM event_embeddings ee 
                      JOIN events e ON e.id = ee.event_id 
-                     WHERE e.branch_name IN ({}) OR e.branch_name IS NULL",
+                     WHERE e.branch_name IN ({}) ",
                     placeholders.join(",")
                 );
 

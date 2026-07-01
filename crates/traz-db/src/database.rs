@@ -114,15 +114,17 @@ impl Db {
             .await?;
 
         // Step 2: Add columns that may be missing from older schemas
-        self.add_column_if_missing("uuid").await?;
-        self.add_column_if_missing("metadata").await?;
-        self.add_column_if_missing("tags").await?;
-        self.add_column_if_missing("session_id").await?;
-        self.add_column_if_missing("diff").await?;
-        self.add_column_if_missing("branch_name").await?;
-        self.add_column_if_missing("parent_event_id").await?;
-        self.add_column_if_missing("is_checkpoint").await?;
-        self.add_column_if_missing("agent_id").await?;
+        self.add_column_if_missing("uuid", "TEXT").await?;
+        self.add_column_if_missing("metadata", "TEXT").await?;
+        self.add_column_if_missing("tags", "TEXT").await?;
+        self.add_column_if_missing("session_id", "TEXT").await?;
+        self.add_column_if_missing("diff", "TEXT").await?;
+        self.add_column_if_missing("branch_name", "TEXT").await?;
+        self.add_column_if_missing("parent_event_id", "INTEGER")
+            .await?;
+        self.add_column_if_missing("is_checkpoint", "BOOLEAN DEFAULT FALSE")
+            .await?;
+        self.add_column_if_missing("agent_id", "TEXT").await?;
 
         // Step 3: Create indexes (safe now that all columns exist)
         self.conn
@@ -150,7 +152,7 @@ impl Db {
         Ok(())
     }
 
-    async fn add_column_if_missing(&self, column: &str) -> Result<()> {
+    async fn add_column_if_missing(&self, column: &str, definition: &str) -> Result<()> {
         let mut stmt = self
             .conn
             .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name=?1")
@@ -164,7 +166,7 @@ impl Db {
         };
 
         if !has_col {
-            let sql = format!("ALTER TABLE events ADD COLUMN {} TEXT", column);
+            let sql = format!("ALTER TABLE events ADD COLUMN {} {}", column, definition);
             self.conn.execute(&sql, ()).await?;
         }
         Ok(())
@@ -240,10 +242,10 @@ mod tests {
         // Test add_column_if_missing logic
         {
             // Try to add an existing column - should not fail
-            db.add_column_if_missing("title").await.unwrap();
+            db.add_column_if_missing("title", "TEXT").await.unwrap();
 
             // Add a new column that's not there
-            db.add_column_if_missing("some_new_test_field")
+            db.add_column_if_missing("some_new_test_field", "TEXT")
                 .await
                 .unwrap();
 

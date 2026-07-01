@@ -412,12 +412,28 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let type_filter = args.get("type").and_then(|v| v.as_str());
             let tag_filter = args.get("tag").and_then(|v| v.as_str());
 
+            let search_branch = traz_integrations::git::get_current_branch()
+                .ok()
+                .filter(|b| !b.trim().is_empty());
+            let branch_names_owned: Vec<String> = if let Some(ref bn) = search_branch {
+                db.get_ancestor_branches(bn)
+                    .await
+                    .unwrap_or_else(|_| vec!["main".to_string()])
+            } else {
+                Vec::new()
+            };
+            let branch_refs: Vec<&str> = branch_names_owned.iter().map(|s| s.as_str()).collect();
+
             let filters = traz_db::SearchFilters {
                 tool: tool_filter,
                 event_type: type_filter,
                 tag: tag_filter,
                 since: None,
-                branch_names: None,
+                branch_names: if branch_refs.is_empty() {
+                    None
+                } else {
+                    Some(branch_refs)
+                },
             };
 
             match db.hybrid_search(query, &filters, 100).await {
@@ -832,7 +848,7 @@ mod tests {
     async fn test_handle_tool_call_traz_search() {
         let (db, test_dir) = setup_test_env("search").await;
 
-        // Seed with event
+        // Seed with event on "main" so it's visible under branch-scoped search
         let event = Event::new(
             "aider".to_string(),
             "bug_fix".to_string(),
@@ -840,7 +856,8 @@ mod tests {
             Some("Fixed a crash when input was empty".to_string()),
             None,
             None,
-        );
+        )
+        .with_branch(Some("main".to_string()));
         db.insert_event(&event).await.unwrap();
 
         let search_payload = json!({

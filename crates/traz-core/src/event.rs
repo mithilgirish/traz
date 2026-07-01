@@ -98,7 +98,7 @@ impl Event {
             diff: None,
             branch_name: None,
             parent_event_id: None,
-            is_checkpoint: Some(false),
+            is_checkpoint: None,
             agent_id: None,
             timestamp: timestamp.unwrap_or_else(Utc::now),
             created_at: None,

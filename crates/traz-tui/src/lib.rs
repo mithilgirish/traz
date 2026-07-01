@@ -73,10 +73,8 @@ pub async fn run(db_path: PathBuf) -> Result<()> {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("theme.json");
 
-    // 3. Load last 100 events
-    let branch_name =
-        traz_integrations::git::get_current_branch().unwrap_or_else(|_| "default".to_string());
-    let events = db.get_recent_events_for_branch(100, &branch_name).await?;
+    // 3. Load last 100 events (all branches including NULL-branch hook events)
+    let events = db.get_recent_events(100).await?;
     let total_count = db.count_events().await.unwrap_or(0);
     let mut app = App::new(db, events, total_count, custom_theme_path);
 

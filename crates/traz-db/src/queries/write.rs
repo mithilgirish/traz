@@ -172,8 +172,13 @@ impl Db {
 
     /// Roll back the branch to its most recent checkpoint.
     pub async fn rollback_to_checkpoint(&self, branch: &str) -> Result<usize> {
-        // Find the most recent checkpoint on this branch
-        let mut stmt = self.conn.prepare("SELECT id FROM events WHERE branch_name = ?1 AND is_checkpoint = 1 ORDER BY timestamp DESC LIMIT 1").await?;
+        // Find the most recent checkpoint on this branch, ordered by id (consistent with delete boundary)
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id FROM events WHERE branch_name = ?1 AND is_checkpoint = 1 ORDER BY id DESC LIMIT 1",
+            )
+            .await?;
         let mut rows = stmt.query(libsql::params![branch]).await?;
 
         if let Some(row) = rows.next().await? {
@@ -266,7 +271,7 @@ impl Db {
     }
 
     /// Rollup a subagent's memory into a single Semantic Summary Event in the parent agent's timeline.
-    /// This deletes all events owned by `agent_id` and replaces them with a single summary event.
+    /// Deletion is scoped to the given branch (or all branches if None).
     pub async fn rollup_agent_memory(
         &self,
         agent_id: &str,
@@ -275,23 +280,48 @@ impl Db {
     ) -> Result<i64> {
         let tx = self.conn.transaction().await?;
 
-        // 1. Delete all episodic events for the subagent.
-        let count = tx
-            .execute(
+        // 1. Delete episodic events for the subagent, scoped by branch when provided.
+        let count = if let Some(ref branch) = branch_name {
+            tx.execute(
+                "DELETE FROM events WHERE agent_id = ?1 AND branch_name = ?2",
+                libsql::params![agent_id, branch.clone()],
+            )
+            .await?
+        } else {
+            tx.execute(
                 "DELETE FROM events WHERE agent_id = ?1",
                 libsql::params![agent_id],
             )
-            .await?;
+            .await?
+        };
 
         if count == 0 {
-            anyhow::bail!("No events found for agent_id '{}'", agent_id);
+            anyhow::bail!(
+                "No events found for agent_id '{}' on the requested branch",
+                agent_id
+            );
         }
 
-        // 2. Insert the semantic summary event.
+        // 2. Resolve the latest remaining event on this branch as parent.
+        let parent_id: Option<i64> = if let Some(ref branch) = branch_name {
+            let mut rows = tx
+                .query(
+                    "SELECT id FROM events WHERE branch_name = ?1 ORDER BY id DESC LIMIT 1",
+                    libsql::params![branch.clone()],
+                )
+                .await?;
+            if let Some(row) = rows.next().await? {
+                row.get::<i64>(0).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // 3. Insert the semantic summary event.
         let title = format!("Subagent Rollup (deleted {} events)", count);
         let now = chrono::Utc::now();
-
-        // We use traz_core::Event just to generate a valid UUID
         let dummy = traz_core::Event::new(
             "traz".into(),
             "summary".into(),
@@ -305,7 +335,7 @@ impl Db {
         tx.execute(
             "INSERT INTO events (uuid, tool, type, title, summary, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp) 
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            libsql::params![uuid, "traz", "summary", title, summary, branch_name, None::<i64>, false, None::<String>, now.to_rfc3339()],
+            libsql::params![uuid, "traz", "summary", title, summary, branch_name, parent_id, false, None::<String>, now.to_rfc3339()],
         )
         .await?;
 
