@@ -180,7 +180,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .split(f.area());
 
     // 1. Draw Sleek Header Title Bar (Dual-Tone Powerline wedge)
-    let total_count = app.db.count_events().unwrap_or(app.all_events.len() as i64);
+    let total_count = app.total_count;
 
     let title_spans = vec![
         Span::styled(
@@ -823,7 +823,7 @@ fn draw_confirm_popup(f: &mut Frame, app: &App, action: &ConfirmAction, theme: &
             ));
         }
         ConfirmAction::Rewind(id) => {
-            let count = app.db.count_events_after(*id).unwrap_or(0);
+            let count = app.rewind_count;
             lines.push(Line::from(
                 format!("   Rewind history to event #{}?", id)
                     .white()

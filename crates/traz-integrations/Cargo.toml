@@ -14,5 +14,6 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 uuid = { workspace = true }
 

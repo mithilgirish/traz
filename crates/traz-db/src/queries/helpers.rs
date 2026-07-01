@@ -1,5 +1,4 @@
 use anyhow::Result;
-use rusqlite::Result as SqliteResult;
 use traz_core::Event;
 
 pub(crate) const MAX_FIELD_LEN: usize = 500;
@@ -18,28 +17,31 @@ pub(crate) fn validate_field(name: &str, value: &str, max_len: usize) -> Result<
     Ok(())
 }
 
-pub(crate) fn collect_events(
-    iter: impl Iterator<Item = SqliteResult<Event>>,
-) -> Result<Vec<Event>> {
+pub(crate) async fn collect_events(mut rows: libsql::Rows) -> Result<Vec<Event>> {
     let mut events = Vec::new();
-    for event in iter {
-        events.push(event?);
+    while let Some(row) = rows.next().await? {
+        events.push(row_to_event(&row)?);
     }
     Ok(events)
 }
 
-pub(crate) fn row_to_event(row: &rusqlite::Row) -> SqliteResult<Event> {
+pub(crate) fn row_to_event(row: &libsql::Row) -> Result<Event> {
+    let id: Option<i64> = row.get(0)?;
+    let uuid: String = row.get::<Option<String>>(1)?.unwrap_or_default();
+    let tool: String = row.get(2)?;
+    let event_type: String = row.get(3)?;
+    let title: String = row.get(4)?;
+    let summary: Option<String> = row.get(5)?;
+
     let files_str: Option<String> = row.get(6)?;
-    let files = match files_str {
-        Some(s) => serde_json::from_str(&s).unwrap_or(None),
-        None => None,
-    };
+    let files: Option<Vec<String>> = files_str.map(|s| serde_json::from_str(&s)).transpose()?;
 
     let metadata_str: Option<String> = row.get(7)?;
-    let metadata = metadata_str.and_then(|s| serde_json::from_str(&s).ok());
+    let metadata: Option<serde_json::Value> =
+        metadata_str.map(|s| serde_json::from_str(&s)).transpose()?;
 
     let tags_str: Option<String> = row.get(8)?;
-    let tags: Option<Vec<String>> = tags_str.and_then(|s| serde_json::from_str(&s).ok());
+    let tags: Option<Vec<String>> = tags_str.map(|s| serde_json::from_str(&s)).transpose()?;
 
     let session_id: Option<String> = row.get(9)?;
     let diff: Option<String> = row.get(10)?;
@@ -57,12 +59,12 @@ pub(crate) fn row_to_event(row: &rusqlite::Row) -> SqliteResult<Event> {
     });
 
     Ok(Event {
-        id: row.get(0)?,
-        uuid: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-        tool: row.get(2)?,
-        event_type: row.get(3)?,
-        title: row.get(4)?,
-        summary: row.get(5)?,
+        id,
+        uuid,
+        tool,
+        event_type,
+        title,
+        summary,
         files,
         metadata,
         tags,

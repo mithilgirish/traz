@@ -103,23 +103,40 @@ async fn health() -> impl IntoResponse {
 
 async fn stats(State(state): State<AppState>) -> impl IntoResponse {
     let db_clone = state.db.clone();
-    let (count, by_tool) = tokio::task::spawn_blocking(move || {
-        let count = db_clone.count_events().unwrap_or(0);
-        let by_tool = db_clone.get_stats().unwrap_or_default();
-        (count, by_tool)
-    })
-    .await
-    .unwrap_or_default();
+    let count = match db_clone.count_events().await {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+    let by_tool = match db_clone.get_stats().await {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
 
     let tools: serde_json::Value = by_tool
         .into_iter()
         .map(|(tool, cnt)| serde_json::json!({ "tool": tool, "count": cnt }))
         .collect();
 
-    Json(serde_json::json!({
-        "total_events": count,
-        "by_tool": tools,
-    }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "total_events": count,
+            "by_tool": tools,
+        })),
+    )
+        .into_response()
 }
 
 async fn create_event(
@@ -150,9 +167,7 @@ async fn create_event(
 
     let db_clone = state.db.clone();
     let event_uuid = event.uuid.clone();
-    let result = tokio::task::spawn_blocking(move || db_clone.insert_event(&event))
-        .await
-        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+    let result = db_clone.insert_event(&event).await;
 
     match result {
         Ok(id) => (
@@ -178,17 +193,15 @@ async fn list_events(
     let limit = filter.limit.unwrap_or(50).min(500);
 
     let db_clone = state.db.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        db_clone.get_filtered_events(
+    let result = db_clone
+        .get_filtered_events(
             limit,
             filter.tool,
             filter.event_type,
             filter.since,
             filter.until,
         )
-    })
-    .await
-    .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+        .await;
 
     match result {
         Ok(events) => (StatusCode::OK, Json(events)).into_response(),
@@ -221,23 +234,21 @@ async fn search_events(
     let tool_filter = filter.tool;
     let event_type_filter = filter.event_type;
 
-    let result = tokio::task::spawn_blocking(move || {
-        let filters = traz_db::SearchFilters {
-            tool: tool_filter.as_deref(),
-            event_type: event_type_filter.as_deref(),
-            ..Default::default()
-        };
-        db_clone
-            .hybrid_search(&query, &filters, limit)
-            .map(|events_with_scores| {
-                events_with_scores
-                    .into_iter()
-                    .map(|(event, _)| event)
-                    .collect::<Vec<Event>>()
-            })
-    })
-    .await
-    .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+    let filters = traz_db::SearchFilters {
+        tool: tool_filter.as_deref(),
+        event_type: event_type_filter.as_deref(),
+        since: filter.since,
+        ..Default::default()
+    };
+    let result = db_clone
+        .hybrid_search(&query, &filters, limit)
+        .await
+        .map(|events_with_scores| {
+            events_with_scores
+                .into_iter()
+                .map(|(event, _)| event)
+                .collect::<Vec<Event>>()
+        });
 
     match result {
         Ok(events) => (StatusCode::OK, Json(events)).into_response(),
@@ -258,9 +269,7 @@ async fn timeline(
 ) -> impl IntoResponse {
     let limit = filter.limit.unwrap_or(200).min(500);
     let db_clone = state.db.clone();
-    let result = tokio::task::spawn_blocking(move || db_clone.get_timeline(limit))
-        .await
-        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+    let result = db_clone.get_timeline(limit).await;
 
     match result {
         Ok(events) => (StatusCode::OK, Json(events)).into_response(),
@@ -277,9 +286,7 @@ async fn timeline(
 
 async fn delete_event(State(state): State<AppState>, Path(id): Path<i64>) -> impl IntoResponse {
     let db_clone = state.db.clone();
-    let result = tokio::task::spawn_blocking(move || db_clone.delete_event(id))
-        .await
-        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+    let result = db_clone.delete_event(id).await;
 
     match result {
         Ok(true) => (
@@ -310,10 +317,7 @@ async fn context_summary(
     let limit = filter.limit.unwrap_or(10).min(100);
     let search = filter.search.clone();
     let db_clone = state.db.clone();
-    let result =
-        tokio::task::spawn_blocking(move || db_clone.get_context_summary(search.as_deref(), limit))
-            .await
-            .unwrap_or_else(|e| Err(anyhow::anyhow!("Task panicked: {}", e)));
+    let result = db_clone.get_context_summary(search.as_deref(), limit).await;
 
     match result {
         Ok(ctx) => (
@@ -344,7 +348,7 @@ mod tests {
     use std::time::SystemTime;
     use tower::ServiceExt;
 
-    fn setup_test_env(test_name: &str) -> (Arc<Db>, std::path::PathBuf) {
+    async fn setup_test_env(test_name: &str) -> (Arc<Db>, std::path::PathBuf) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -352,7 +356,7 @@ mod tests {
         let unique_dir = std::env::temp_dir().join(format!("traz_api_test_{}_{}", test_name, ts));
         let _ = std::fs::create_dir_all(&unique_dir);
         let db_path = unique_dir.join("traz.db");
-        let db = Db::open(&db_path).unwrap();
+        let db = Db::open(&db_path).await.unwrap();
         (Arc::new(db), unique_dir)
     }
 
@@ -362,7 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_health() {
-        let (db, test_dir) = setup_test_env("health");
+        let (db, test_dir) = setup_test_env("health").await;
         let app = create_router(db);
 
         let response = app
@@ -390,7 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_create_and_list_events() {
-        let (db, test_dir) = setup_test_env("events");
+        let (db, test_dir) = setup_test_env("events").await;
         let app = create_router(db);
 
         // 1. Create an event
@@ -454,7 +458,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_host_validation() {
-        let (db, test_dir) = setup_test_env("host_val");
+        let (db, test_dir) = setup_test_env("host_val").await;
         let app = create_router(db);
 
         // Host validation should block external domains like google.com
@@ -476,7 +480,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_stats() {
-        let (db, test_dir) = setup_test_env("stats");
+        let (db, test_dir) = setup_test_env("stats").await;
         let app = create_router(db.clone());
 
         // Insert mock event
@@ -488,6 +492,7 @@ mod tests {
             None,
             None,
         ))
+        .await
         .unwrap();
 
         let response = app
@@ -516,7 +521,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_delete_event() {
-        let (db, test_dir) = setup_test_env("delete");
+        let (db, test_dir) = setup_test_env("delete").await;
         let app = create_router(db.clone());
 
         let id = db
@@ -528,6 +533,7 @@ mod tests {
                 None,
                 None,
             ))
+            .await
             .unwrap();
 
         // 1. Delete existing
@@ -572,7 +578,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_search_events() {
-        let (db, test_dir) = setup_test_env("search");
+        let (db, test_dir) = setup_test_env("search").await;
         let app = create_router(db.clone());
 
         db.insert_event(&traz_core::Event::new(
@@ -583,6 +589,7 @@ mod tests {
             None,
             None,
         ))
+        .await
         .unwrap();
 
         // 1. Valid search
@@ -625,7 +632,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_create_invalid_payload() {
-        let (db, test_dir) = setup_test_env("invalid_payload");
+        let (db, test_dir) = setup_test_env("invalid_payload").await;
         let app = create_router(db);
 
         // Missing required fields (e.g. type/event_type, title, tool)
@@ -654,7 +661,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_context_summary() {
-        let (db, test_dir) = setup_test_env("context");
+        let (db, test_dir) = setup_test_env("context").await;
         let app = create_router(db.clone());
 
         db.insert_event(&traz_core::Event::new(
@@ -665,6 +672,7 @@ mod tests {
             None,
             None,
         ))
+        .await
         .unwrap();
 
         let response = app

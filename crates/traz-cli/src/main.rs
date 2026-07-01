@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
             }
 
             let db_existed = config.db_path.exists();
-            let db = Arc::new(Db::open(&config.db_path)?);
+            let db = Arc::new(Db::open(&config.db_path).await?);
             run_command(command, &config, db, db_existed).await?;
         }
         None => {
@@ -83,7 +83,7 @@ async fn run_command(
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
 
             if db_existed {
-                let count = db.count_events()?;
+                let count = db.count_events().await?;
                 println!(
                     "  {GREEN}✓{RESET} {BOLD}Traz already initialized{RESET} (DB: {}, {} events)",
                     config.db_path.display(),
@@ -255,9 +255,10 @@ async fn run_command(
             deduplicate,
         } => {
             let events = if tool.is_some() || event_type.is_some() {
-                db.get_filtered_events(limit, tool, event_type, None, None)?
+                db.get_filtered_events(limit, tool, event_type, None, None)
+                    .await?
             } else {
-                db.get_recent_events(limit)?
+                db.get_recent_events(limit).await?
             };
             if events.is_empty() {
                 print_empty("No events yet. Add one with `traz add`.");
@@ -290,7 +291,9 @@ async fn run_command(
             let limit = 100;
             let since = chrono::Utc::now()
                 - chrono::Duration::try_hours(hours as i64).unwrap_or(chrono::Duration::zero());
-            let events = db.get_filtered_events(limit, None, None, Some(since), None)?;
+            let events = db
+                .get_filtered_events(limit, None, None, Some(since), None)
+                .await?;
             if events.is_empty() {
                 print_empty(&format!(
                     "No events found in the last {} hours. You're starting fresh!",
@@ -308,7 +311,7 @@ async fn run_command(
         }
 
         Commands::Timeline { limit, json } => {
-            let events = db.get_timeline(limit)?;
+            let events = db.get_timeline(limit).await?;
             if events.is_empty() {
                 print_empty("Timeline is empty.");
             } else if json {
@@ -341,7 +344,7 @@ async fn run_command(
                 since: since_dt,
             };
 
-            let results = db.hybrid_search(&query, &filters, limit)?;
+            let results = db.hybrid_search(&query, &filters, limit).await?;
 
             if results.is_empty() {
                 print_empty(&format!("No events matching \"{}\".", query));
@@ -391,7 +394,7 @@ async fn run_command(
             #[allow(non_snake_case, unused_variables)]
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
             println!("{BOLD}Backfilling embeddings for missing events...{RESET}");
-            match db.backfill_missing_embeddings() {
+            match db.backfill_missing_embeddings().await {
                 Ok(count) => println!(
                     "  {GREEN}✓{RESET} Generated embeddings for {BOLD}{count}{RESET} events."
                 ),
@@ -441,7 +444,7 @@ async fn run_command(
                 event = event.with_diff(d);
             }
 
-            let id = db.insert_event(&event)?;
+            let id = db.insert_event(&event).await?;
             print_success(&format!("Event #{} added.", id));
         }
 
@@ -475,7 +478,7 @@ async fn run_command(
                     }
                 }
             }
-            let id = db.insert_event(&event)?;
+            let id = db.insert_event(&event).await?;
 
             #[allow(non_snake_case, unused_variables)]
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
@@ -485,7 +488,7 @@ async fn run_command(
         }
 
         Commands::Delete { id } => {
-            if db.delete_event(id)? {
+            if db.delete_event(id).await? {
                 print_success(&format!("Event #{} deleted.", id));
             } else {
                 print_empty(&format!("Event #{} not found.", id));
@@ -493,9 +496,9 @@ async fn run_command(
         }
 
         Commands::Undo => {
-            if let Some(id) = db.get_last_event_id()? {
-                let event = db.get_event(id)?;
-                if db.delete_event(id)? {
+            if let Some(id) = db.get_last_event_id().await? {
+                let event = db.get_event(id).await?;
+                if db.delete_event(id).await? {
                     if let Some(e) = event {
                         print_success(&format!(
                             "Undone event #{}: \"{}\" [{}]",
@@ -511,7 +514,7 @@ async fn run_command(
         }
 
         Commands::Compress { days, summary } => {
-            let (count, new_id) = db.compress_events(days, summary)?;
+            let (count, new_id) = db.compress_events(days, summary).await?;
             if count > 0 {
                 print_success(&format!(
                     "Compressed {} events older than {} days into new Epoch event #{}.",
@@ -523,10 +526,10 @@ async fn run_command(
         }
 
         Commands::Rewind { id } => {
-            if db.get_event(id)?.is_none() {
+            if db.get_event(id).await?.is_none() {
                 print_empty(&format!("Checkpoint event #{} not found.", id));
             } else {
-                let deleted = db.delete_events_after(id)?;
+                let deleted = db.delete_events_after(id).await?;
                 if deleted > 0 {
                     print_success(&format!(
                         "Rewound to event #{}. Deleted {} subsequent events.",
@@ -538,7 +541,7 @@ async fn run_command(
             }
         }
 
-        Commands::Show { id, json } => match db.get_event(id)? {
+        Commands::Show { id, json } => match db.get_event(id).await? {
             Some(event) => {
                 if json {
                     let j = serde_json::to_string_pretty(&event).unwrap_or_else(|_| "{}".into());
@@ -553,7 +556,7 @@ async fn run_command(
         },
 
         Commands::Diff { id } => {
-            match db.get_event(id)? {
+            match db.get_event(id).await? {
                 Some(event) => {
                     if let Some(diff) = event.diff {
                         use std::io::IsTerminal;
@@ -594,8 +597,9 @@ async fn run_command(
             } else {
                 traz_core::OutputFormat::Markdown
             };
-            let ctx =
-                db.get_context_optimized(query.as_deref(), limit, format, budget, deduplicate)?;
+            let ctx = db
+                .get_context_optimized(query.as_deref(), limit, format, budget, deduplicate)
+                .await?;
             if json {
                 let data = serde_json::json!({
                     "context": ctx,
@@ -614,14 +618,14 @@ async fn run_command(
 
         Commands::Capture => {
             let event = traz_integrations::git::capture_latest_commit()?;
-            let id = db.insert_event(&event)?;
+            let id = db.insert_event(&event).await?;
             print_success(&format!("Captured git commit as event #{}.", id));
         }
 
         // ── Info commands ───────────────────────────────────────────
         Commands::Stats { json } => {
-            let count = db.count_events()?;
-            let by_tool = db.get_stats()?;
+            let count = db.count_events().await?;
+            let by_tool = db.get_stats().await?;
 
             if json {
                 let tools: serde_json::Value = by_tool
@@ -663,14 +667,14 @@ async fn run_command(
             println!("  {BOLD}Database:{RESET}     {}", config.db_path.display());
 
             // 2. Total count of events
-            let count = db.count_events()?;
+            let count = db.count_events().await?;
             println!("  {BOLD}Total events:{RESET} {}", count);
 
             // 3. Last event details (handling empty DB safely)
             println!();
             println!("  {BOLD}Last Event:{RESET}");
-            if let Some(last_id) = db.get_last_event_id()? {
-                if let Some(event) = db.get_event(last_id)? {
+            if let Some(last_id) = db.get_last_event_id().await? {
+                if let Some(event) = db.get_event(last_id).await? {
                     let icon = display::type_icon(&event.event_type);
                     let rel = display::relative_time(&event.timestamp);
                     println!(
@@ -685,7 +689,7 @@ async fn run_command(
             }
 
             // 4. Tool stats breakdown
-            let by_tool = db.get_stats()?;
+            let by_tool = db.get_stats().await?;
             println!();
             println!("  {BOLD}Events by Tool:{RESET}");
             if by_tool.is_empty() {
@@ -737,11 +741,11 @@ async fn run_command(
 
         Commands::Tui => {
             let db_path = config.db_path.clone();
-            traz_tui::run(db_path)?;
+            traz_tui::run(db_path).await?;
         }
 
         Commands::Export => {
-            let events = db.get_timeline(u32::MAX)?;
+            let events = db.get_timeline(u32::MAX).await?;
             let json = serde_json::to_string_pretty(&events)?;
             println!("{}", json);
         }
@@ -757,11 +761,11 @@ async fn run_command(
 
             for event in &events {
                 // Skip if UUID already exists
-                if let Ok(Some(_)) = db.get_event_by_uuid(&event.uuid) {
+                if let Ok(Some(_)) = db.get_event_by_uuid(&event.uuid).await {
                     skipped += 1;
                     continue;
                 }
-                match db.insert_event(event) {
+                match db.insert_event(event).await {
                     Ok(_) => imported += 1,
                     Err(e) => {
                         print_warning(&format!("Skipped event \"{}\": {}", event.title, e));
@@ -1150,13 +1154,13 @@ async fn run_command(
             let mut db_healthy = false;
             let mut fts5_supported = false;
 
-            match Db::open(&config.db_path) {
+            match Db::open(&config.db_path).await {
                 Ok(database) => {
                     db_healthy = true;
                     println!("     - Connection:       {GREEN}✓ Connection Succeeded{RESET}");
 
                     // Run real FTS5 support check in-memory or on database connection
-                    fts5_supported = database.check_fts5_support();
+                    fts5_supported = database.check_fts5_support().await;
 
                     if fts5_supported {
                         println!("     - SQLite FTS5:      {GREEN}✓ Enabled & Compiled{RESET}");
@@ -1245,7 +1249,7 @@ async fn run_command(
             let mut stdin_data = String::new();
             let _ = std::io::stdin().read_to_string(&mut stdin_data);
 
-            match traz_integrations::hooks::handle_hook(&db, &platform, &event, &stdin_data) {
+            match traz_integrations::hooks::handle_hook(&db, &platform, &event, &stdin_data).await {
                 Ok(response) => {
                     println!("{}", response);
                 }
@@ -1270,9 +1274,9 @@ async fn run_command(
 
 async fn run_interactive() -> Result<()> {
     let config = TrazConfig::resolve();
-    let db = Arc::new(Db::open(&config.db_path)?);
+    let db = Arc::new(Db::open(&config.db_path).await?);
 
-    let is_first_run = db.count_events().unwrap_or(0) == 0;
+    let is_first_run = db.count_events().await.unwrap_or(0) == 0;
 
     if is_first_run {
         banner::print_banner();
@@ -1383,7 +1387,7 @@ async fn run_interactive() -> Result<()> {
             }
             "tui" => {
                 let db_path = config.db_path.clone();
-                if let Err(e) = traz_tui::run(db_path) {
+                if let Err(e) = traz_tui::run(db_path).await {
                     eprintln!("  \x1b[31m✗\x1b[0m Failed to launch TUI: {}", e);
                 }
                 continue;

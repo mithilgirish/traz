@@ -37,7 +37,7 @@ impl Drop for RawModeGuard {
 }
 
 /// Run the TUI timeline explorer dashboard.
-pub fn run(db_path: PathBuf) -> Result<()> {
+pub async fn run(db_path: PathBuf) -> Result<()> {
     // 1. Startup Sequence: Print experimental guide to plain stdout
     println!();
     println!(
@@ -56,7 +56,7 @@ pub fn run(db_path: PathBuf) -> Result<()> {
     let _ = std::io::stdout().flush();
 
     // Sleep 1800ms
-    std::thread::sleep(std::time::Duration::from_millis(1800));
+    tokio::time::sleep(std::time::Duration::from_millis(1800)).await;
 
     // Clear lines programmatically
     for _ in 0..8 {
@@ -65,7 +65,7 @@ pub fn run(db_path: PathBuf) -> Result<()> {
     let _ = std::io::stdout().flush();
 
     // 2. Open DB directly
-    let db = traz_db::Db::open(&db_path)?;
+    let db = traz_db::Db::open(&db_path).await?;
 
     let custom_theme_path = db_path
         .parent()
@@ -74,8 +74,9 @@ pub fn run(db_path: PathBuf) -> Result<()> {
         .join("theme.json");
 
     // 3. Load last 100 events
-    let events = db.get_recent_events(100)?;
-    let mut app = App::new(db, events, custom_theme_path);
+    let events = db.get_recent_events(100).await?;
+    let total_count = db.count_events().await.unwrap_or(0);
+    let mut app = App::new(db, events, total_count, custom_theme_path);
 
     // 4. Enter raw mode using the RAII guard
     let _guard = RawModeGuard::new()?;
@@ -96,7 +97,7 @@ pub fn run(db_path: PathBuf) -> Result<()> {
         if crossterm::event::poll(std::time::Duration::from_millis(50))?
             && let crossterm::event::Event::Key(key) = crossterm::event::read()?
             && key.kind != crossterm::event::KeyEventKind::Release
-            && handle_input(&mut app, key)?
+            && handle_input(&mut app, key).await?
         {
             break;
         }

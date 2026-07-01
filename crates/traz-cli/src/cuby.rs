@@ -110,7 +110,7 @@ pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>)
 
     match subcommand {
         "status" | "stats" | "" => {
-            let count = db.count_events()?;
+            let count = db.count_events().await?;
             let (mood, message) = if count == 0 {
                 (
                     "sad",
@@ -167,7 +167,7 @@ pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>)
 
             let query = args.join(" ");
             let filters = traz_db::SearchFilters::default();
-            let results = db.search_events(&query, &filters, 5)?;
+            let results = db.search_events(&query, &filters, 5).await?;
 
             if results.is_empty() {
                 let lines = vec![
@@ -238,8 +238,8 @@ pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>)
                 created_at: Some(chrono::Utc::now()),
             };
 
-            let id = db.insert_event(&event)?;
-            let total = db.count_events()?;
+            let id = db.insert_event(&event).await?;
+            let total = db.count_events().await?;
 
             let lines = vec![
                 format!("{}*NOM NOM NOM* Delicious!{} 😋", BOLD, RESET),
@@ -252,7 +252,7 @@ pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>)
         }
 
         "talk" | "chat" | "quote" | "speak" => {
-            let recent = db.get_recent_events(1)?;
+            let recent = db.get_recent_events(1).await?;
             if recent.is_empty() {
                 let lines = vec![
                     format!("{}Zzz... *snore*...{}", BOLD, RESET),
@@ -392,7 +392,7 @@ pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>)
         }
 
         "play" | "game" | "tamagotchi" => {
-            play_game(db)?;
+            play_game(db).await?;
         }
 
         "dance" | "disco" => {
@@ -571,7 +571,7 @@ pub fn play_dance_animation(happiness: u32, hunger: u32, brain_power: u32) -> Re
     Ok(())
 }
 
-pub fn play_game(db: Arc<Db>) -> Result<()> {
-    traz_tui::cuby_tui::run_cuby_game(db.path().to_path_buf())?;
+pub async fn play_game(db: Arc<Db>) -> Result<()> {
+    traz_tui::cuby_tui::run_cuby_game(db.path().to_path_buf()).await?;
     Ok(())
 }

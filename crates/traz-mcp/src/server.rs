@@ -157,13 +157,7 @@ pub async fn run_mcp_server(db: Arc<Db>) -> Result<()> {
             }),
 
             "tools/call" => {
-                let db_clone = db.clone();
-                let req_clone = req.clone();
-                let result = tokio::task::spawn_blocking(move || {
-                    handle_tool_call(&db_clone, &req_clone, experimental)
-                })
-                .await
-                .unwrap_or_else(|e| tool_err(&format!("Task panicked: {}", e)));
+                let result = handle_tool_call(&db, &req, experimental).await;
                 json!({ "jsonrpc": "2.0", "id": id, "result": result })
             }
 
@@ -325,7 +319,7 @@ fn build_tool_definitions(experimental: bool) -> Value {
     Value::Array(tools)
 }
 
-fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
+async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
     let default_params = json!({});
     let params = req.get("params").unwrap_or(&default_params);
     let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
@@ -354,7 +348,7 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|d| d.as_bool())
                 .unwrap_or(false);
 
-            match db.get_recent_events(limit) {
+            match db.get_recent_events(limit).await {
                 Ok(events) => match format {
                     traz_core::OutputFormat::Dense => {
                         let mut budget = match max_tokens {
@@ -395,7 +389,7 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 since: None,
             };
 
-            match db.hybrid_search(query, &filters, 100) {
+            match db.hybrid_search(query, &filters, 100).await {
                 Ok(results) if results.is_empty() => {
                     tool_ok(&format!("[search] No events found matching \"{}\"", query))
                 }
@@ -458,12 +452,12 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             if let Some(d) = diff {
                 event = event.with_diff(d);
             }
-            match db.insert_event(&event) {
+            match db.insert_event(&event).await {
                 Ok(id) => tool_ok(&format!("Event created with ID {}", id)),
                 Err(e) => tool_err(&e.to_string()),
             }
         }
-        "traz_timeline" => match db.get_timeline(500) {
+        "traz_timeline" => match db.get_timeline(500).await {
             Ok(events) => tool_ok(&serde_json::to_string_pretty(&events).unwrap_or_default()),
             Err(e) => tool_err(&e.to_string()),
         },
@@ -485,14 +479,23 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|d| d.as_bool())
                 .unwrap_or(false);
 
-            match db.get_context_optimized(query, limit, format, max_tokens, deduplicate) {
+            match db
+                .get_context_optimized(query, limit, format, max_tokens, deduplicate)
+                .await
+            {
                 Ok(ctx) => tool_ok(&ctx),
                 Err(e) => tool_err(&e.to_string()),
             }
         }
         "traz_stats" => {
-            let count = db.count_events().unwrap_or(0);
-            let stats = db.get_stats().unwrap_or_default();
+            let count = match db.count_events().await {
+                Ok(c) => c,
+                Err(e) => return tool_err(&format!("Failed to count events: {}", e)),
+            };
+            let stats = match db.get_stats().await {
+                Ok(s) => s,
+                Err(e) => return tool_err(&format!("Failed to get stats: {}", e)),
+            };
             let mut summary = format!("Total Events: {}\n\nBy Tool:\n", count);
             for (tool, c) in stats {
                 summary.push_str(&format!("- {}: {}\n", tool, c));
@@ -501,7 +504,7 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
         }
         "traz_delete" => {
             if let Some(id) = args.get("id").and_then(|i| i.as_i64()) {
-                match db.delete_event(id) {
+                match db.delete_event(id).await {
                     Ok(true) => tool_ok(&format!("Event #{} deleted.", id)),
                     Ok(false) => tool_err(&format!("Event #{} not found.", id)),
                     Err(e) => tool_err(&e.to_string()),
@@ -515,7 +518,7 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let summary = args.get("summary").and_then(|s| s.as_str());
 
             if let (Some(d), Some(s)) = (days, summary) {
-                match db.compress_events(d, s.to_string()) {
+                match db.compress_events(d, s.to_string()).await {
                     Ok((count, new_id)) => {
                         if count > 0 {
                             tool_ok(&format!(
@@ -538,7 +541,7 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
         "traz_show" => {
             if let Some(id_val) = args.get("id") {
                 if let Some(id) = id_val.as_i64() {
-                    match db.get_event(id) {
+                    match db.get_event(id).await {
                         Ok(Some(event)) => {
                             tool_ok(&serde_json::to_string_pretty(&event).unwrap_or_default())
                         }
@@ -555,7 +558,7 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
         "traz_diff" => {
             if let Some(id_val) = args.get("id") {
                 if let Some(id) = id_val.as_i64() {
-                    match db.get_event(id) {
+                    match db.get_event(id).await {
                         Ok(Some(event)) => {
                             if let Some(diff) = event.diff {
                                 tool_ok(&diff)
@@ -589,7 +592,7 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 None,
             );
 
-            match db.insert_event(&event) {
+            match db.insert_event(&event).await {
                 Ok(id) => tool_ok(&format!(
                     "Checkpoint created with ID {}. Please instruct the user to start a new chat session to clear context bloat.",
                     id
@@ -609,7 +612,10 @@ fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let since = chrono::Utc::now()
                 - chrono::Duration::try_hours(hours).unwrap_or(chrono::Duration::zero());
 
-            match db.get_filtered_events(100, None, None, Some(since), None) {
+            match db
+                .get_filtered_events(100, None, None, Some(since), None)
+                .await
+            {
                 Ok(events) if events.is_empty() => tool_ok(&format!(
                     "No events in the last {} hours. You're starting fresh!",
                     hours
@@ -667,7 +673,7 @@ mod tests {
     use super::*;
     use std::time::SystemTime;
 
-    fn setup_test_env(test_name: &str) -> (Db, std::path::PathBuf) {
+    async fn setup_test_env(test_name: &str) -> (Db, std::path::PathBuf) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -675,7 +681,7 @@ mod tests {
         let unique_dir = std::env::temp_dir().join(format!("traz_mcp_test_{}_{}", test_name, ts));
         let _ = std::fs::create_dir_all(&unique_dir);
         let db_path = unique_dir.join("traz.db");
-        let db = Db::open(&db_path).unwrap();
+        let db = Db::open(&db_path).await.unwrap();
         (db, unique_dir)
     }
 
@@ -703,9 +709,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_handle_tool_call_traz_add_and_recent() {
-        let (db, test_dir) = setup_test_env("add_recent");
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_add_and_recent() {
+        let (db, test_dir) = setup_test_env("add_recent").await;
 
         // 1. Call traz_add
         let add_payload = json!({
@@ -721,7 +727,7 @@ mod tests {
             }
         });
 
-        let res = handle_tool_call(&db, &add_payload, false);
+        let res = handle_tool_call(&db, &add_payload, false).await;
         assert!(res.get("isError").is_none());
         let text = res["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Event created with ID"));
@@ -736,7 +742,7 @@ mod tests {
                 }
             }
         });
-        let res_recent = handle_tool_call(&db, &recent_payload, false);
+        let res_recent = handle_tool_call(&db, &recent_payload, false).await;
         let text_recent = res_recent["content"][0]["text"].as_str().unwrap();
         assert!(text_recent.contains("cursor"));
         assert!(text_recent.contains("ft")); // abbreviated type for feature
@@ -745,9 +751,9 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_tool_call_traz_search() {
-        let (db, test_dir) = setup_test_env("search");
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_search() {
+        let (db, test_dir) = setup_test_env("search").await;
 
         // Seed with event
         let event = Event::new(
@@ -758,7 +764,7 @@ mod tests {
             None,
             None,
         );
-        db.insert_event(&event).unwrap();
+        db.insert_event(&event).await.unwrap();
 
         let search_payload = json!({
             "params": {
@@ -769,7 +775,7 @@ mod tests {
             }
         });
 
-        let res = handle_tool_call(&db, &search_payload, false);
+        let res = handle_tool_call(&db, &search_payload, false).await;
         let text = res["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Resolved panic in parser"));
         assert!(text.contains("aider"));
@@ -777,9 +783,9 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_tool_call_traz_stats() {
-        let (db, test_dir) = setup_test_env("stats");
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_stats() {
+        let (db, test_dir) = setup_test_env("stats").await;
 
         let event = Event::new(
             "cursor".to_string(),
@@ -789,7 +795,7 @@ mod tests {
             None,
             None,
         );
-        db.insert_event(&event).unwrap();
+        db.insert_event(&event).await.unwrap();
 
         let stats_payload = json!({
             "params": {
@@ -798,16 +804,16 @@ mod tests {
             }
         });
 
-        let res = handle_tool_call(&db, &stats_payload, false);
+        let res = handle_tool_call(&db, &stats_payload, false).await;
         let text = res["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Total Events: 1"));
 
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_tool_call_traz_checkpoint() {
-        let (db, test_dir) = setup_test_env("checkpoint");
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_checkpoint() {
+        let (db, test_dir) = setup_test_env("checkpoint").await;
 
         let checkpoint_payload = json!({
             "params": {
@@ -818,12 +824,12 @@ mod tests {
             }
         });
 
-        let res = handle_tool_call(&db, &checkpoint_payload, false);
+        let res = handle_tool_call(&db, &checkpoint_payload, false).await;
         let text = res["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Checkpoint created with ID"));
 
         // Verify the database has the checkpoint event
-        let events = db.get_recent_events(5).unwrap();
+        let events = db.get_recent_events(5).await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "checkpoint");
         assert_eq!(events[0].title, "Session Checkpoint");
@@ -835,9 +841,9 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_tool_call_unknown_and_experimental() {
-        let (db, test_dir) = setup_test_env("unknown_experimental");
+    #[tokio::test]
+    async fn test_handle_tool_call_unknown_and_experimental() {
+        let (db, test_dir) = setup_test_env("unknown_experimental").await;
 
         // 1. Unknown tool
         let unknown_payload = json!({
@@ -846,7 +852,7 @@ mod tests {
                 "arguments": {}
             }
         });
-        let res = handle_tool_call(&db, &unknown_payload, false);
+        let res = handle_tool_call(&db, &unknown_payload, false).await;
         assert_eq!(res["isError"], true);
 
         // 2. Experimental tool with experimental = false
@@ -856,15 +862,15 @@ mod tests {
                 "arguments": {}
             }
         });
-        let res_exp_false = handle_tool_call(&db, &exp_payload, false);
+        let res_exp_false = handle_tool_call(&db, &exp_payload, false).await;
         assert_eq!(res_exp_false["isError"], true);
 
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_tool_call_traz_context() {
-        let (db, test_dir) = setup_test_env("context");
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_context() {
+        let (db, test_dir) = setup_test_env("context").await;
 
         let event = Event::new(
             "cursor".to_string(),
@@ -874,7 +880,7 @@ mod tests {
             None,
             None,
         );
-        db.insert_event(&event).unwrap();
+        db.insert_event(&event).await.unwrap();
 
         let context_payload = json!({
             "params": {
@@ -886,7 +892,7 @@ mod tests {
             }
         });
 
-        let res = handle_tool_call(&db, &context_payload, false);
+        let res = handle_tool_call(&db, &context_payload, false).await;
         assert!(res.get("isError").is_none());
         let text = res["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("MCP context testing"));
@@ -894,9 +900,9 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_tool_call_traz_show_and_diff() {
-        let (db, test_dir) = setup_test_env("show_diff");
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_show_and_diff() {
+        let (db, test_dir) = setup_test_env("show_diff").await;
 
         let event = Event::new(
             "cursor".to_string(),
@@ -908,7 +914,7 @@ mod tests {
         )
         .with_diff("--- a/f\n+++ b/f\n+hello".to_string());
 
-        let id = db.insert_event(&event).unwrap();
+        let id = db.insert_event(&event).await.unwrap();
 
         // 1. traz_show
         let show_payload = json!({
@@ -919,7 +925,7 @@ mod tests {
                 }
             }
         });
-        let res_show = handle_tool_call(&db, &show_payload, false);
+        let res_show = handle_tool_call(&db, &show_payload, false).await;
         assert!(res_show.get("isError").is_none());
         let text_show = res_show["content"][0]["text"].as_str().unwrap();
         assert!(text_show.contains("Testing show and diff"));
@@ -933,7 +939,7 @@ mod tests {
                 }
             }
         });
-        let res_diff = handle_tool_call(&db, &diff_payload, false);
+        let res_diff = handle_tool_call(&db, &diff_payload, false).await;
         assert!(res_diff.get("isError").is_none());
         let text_diff = res_diff["content"][0]["text"].as_str().unwrap();
         assert!(text_diff.contains("+hello"));
@@ -947,15 +953,15 @@ mod tests {
                 }
             }
         });
-        let res_show_missing = handle_tool_call(&db, &show_missing, false);
+        let res_show_missing = handle_tool_call(&db, &show_missing, false).await;
         assert_eq!(res_show_missing["isError"], true);
 
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_tool_call_traz_recap() {
-        let (db, test_dir) = setup_test_env("recap");
+    #[tokio::test]
+    async fn test_handle_tool_call_traz_recap() {
+        let (db, test_dir) = setup_test_env("recap").await;
 
         let event = Event::new(
             "cursor".to_string(),
@@ -965,7 +971,7 @@ mod tests {
             None,
             None,
         );
-        db.insert_event(&event).unwrap();
+        db.insert_event(&event).await.unwrap();
 
         let recap_payload = json!({
             "params": {
@@ -977,7 +983,7 @@ mod tests {
             }
         });
 
-        let res = handle_tool_call(&db, &recap_payload, false);
+        let res = handle_tool_call(&db, &recap_payload, false).await;
         assert!(res.get("isError").is_none());
         let text = res["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Recap"));
@@ -986,9 +992,9 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_tool_call_experimental_enabled() {
-        let (db, test_dir) = setup_test_env("experimental");
+    #[tokio::test]
+    async fn test_handle_tool_call_experimental_enabled() {
+        let (db, test_dir) = setup_test_env("experimental").await;
 
         let event = Event::new(
             "cursor".to_string(),
@@ -998,7 +1004,7 @@ mod tests {
             None,
             None,
         );
-        let id = db.insert_event(&event).unwrap();
+        let id = db.insert_event(&event).await.unwrap();
 
         // 1. traz_timeline
         let timeline_payload = json!({
@@ -1007,7 +1013,7 @@ mod tests {
                 "arguments": {}
             }
         });
-        let res_timeline = handle_tool_call(&db, &timeline_payload, true);
+        let res_timeline = handle_tool_call(&db, &timeline_payload, true).await;
         assert!(res_timeline.get("isError").is_none());
         assert!(
             res_timeline["content"][0]["text"]
@@ -1025,7 +1031,7 @@ mod tests {
                 }
             }
         });
-        let res_delete = handle_tool_call(&db, &delete_payload, true);
+        let res_delete = handle_tool_call(&db, &delete_payload, true).await;
         assert!(res_delete.get("isError").is_none());
         assert!(
             res_delete["content"][0]["text"]
@@ -1035,14 +1041,14 @@ mod tests {
         );
 
         // Verify it was deleted
-        assert!(db.get_event(id).unwrap().is_none());
+        assert!(db.get_event(id).await.unwrap().is_none());
 
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_tool_call_bad_arguments() {
-        let (db, test_dir) = setup_test_env("bad_arguments");
+    #[tokio::test]
+    async fn test_handle_tool_call_bad_arguments() {
+        let (db, test_dir) = setup_test_env("bad_arguments").await;
 
         // 1. traz_search missing query
         let bad_search = json!({
@@ -1051,7 +1057,7 @@ mod tests {
                 "arguments": {}
             }
         });
-        let res_search = handle_tool_call(&db, &bad_search, false);
+        let res_search = handle_tool_call(&db, &bad_search, false).await;
         assert_eq!(res_search["isError"], true);
         assert!(
             res_search["content"][0]["text"]
@@ -1067,7 +1073,7 @@ mod tests {
                 "arguments": {}
             }
         });
-        let res_show = handle_tool_call(&db, &bad_show, false);
+        let res_show = handle_tool_call(&db, &bad_show, false).await;
         assert_eq!(res_show["isError"], true);
 
         // 3. traz_diff bad id format
@@ -1079,7 +1085,7 @@ mod tests {
                 }
             }
         });
-        let res_diff = handle_tool_call(&db, &bad_diff, false);
+        let res_diff = handle_tool_call(&db, &bad_diff, false).await;
         assert_eq!(res_diff["isError"], true);
 
         cleanup_test_env(test_dir);

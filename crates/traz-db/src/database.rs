@@ -1,22 +1,18 @@
 use anyhow::{Context, Result};
-use rusqlite::Connection;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
-/// Database abstraction over a local SQLite store.
+/// Database abstraction over a local libSQL store.
 ///
-/// All event persistence flows through this struct. The inner connection
-/// is wrapped in a `Mutex` so the `Db` can be shared safely across the
-/// async Axum handlers and the MCP server.
+/// All event persistence flows through this struct.
 pub struct Db {
-    pub(crate) conn: Mutex<Connection>,
+    pub(crate) conn: libsql::Connection,
     pub(crate) path: PathBuf,
     pub config: traz_core::TrazConfig,
 }
 
 impl Db {
     /// Open (or create) the database at `db_path` and run migrations.
-    pub fn open(db_path: &Path) -> Result<Self> {
+    pub async fn open(db_path: &Path) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).context("Failed to create database directory")?;
             #[cfg(unix)]
@@ -30,7 +26,17 @@ impl Db {
             }
         }
 
-        let conn = Connection::open(db_path).context("Failed to open SQLite database")?;
+        let db_path_str = db_path
+            .to_str()
+            .context("Database path is not valid UTF-8")?;
+        let db = libsql::Builder::new_local(db_path_str)
+            .build()
+            .await
+            .context("Failed to build local libSQL database")?;
+        let conn = db
+            .connect()
+            .context("Failed to connect to local libSQL database")?;
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -41,24 +47,28 @@ impl Db {
             }
         }
 
-        // Tune SQLite for single-user, local-first workloads
+        // Tune SQLite/libSQL for single-user, local-first workloads
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous  = NORMAL;
              PRAGMA foreign_keys = ON;
              PRAGMA busy_timeout = 5000;",
         )
-        .context("Failed to set SQLite pragmas")?;
+        .await
+        .context("Failed to set SQLite/libSQL pragmas")?;
 
         let config = traz_core::TrazConfig::resolve();
-        let db = Self {
-            conn: Mutex::new(conn),
+        let db_instance = Self {
+            conn,
             path: db_path.to_path_buf(),
             config,
         };
-        db.migrate().context("Failed to run database migrations")?;
+        db_instance
+            .migrate()
+            .await
+            .context("Failed to run database migrations")?;
 
-        Ok(db)
+        Ok(db_instance)
     }
 
     /// Returns the filesystem path of the database file.
@@ -67,33 +77,21 @@ impl Db {
     }
 
     /// Check if the compiled SQLite version has FTS5 support enabled.
-    pub fn check_fts5_support(&self) -> bool {
-        let conn = self.lock_conn();
-        conn.execute_batch(
-            "CREATE VIRTUAL TABLE temp.temp_fts USING fts5(dummy);
+    pub async fn check_fts5_support(&self) -> bool {
+        self.conn
+            .execute_batch(
+                "CREATE VIRTUAL TABLE temp.temp_fts USING fts5(dummy);
              DROP TABLE temp.temp_fts;",
-        )
-        .is_ok()
+            )
+            .await
+            .is_ok()
     }
 
-    /// Acquire the connection lock, recovering from a poisoned mutex
-    /// instead of panicking the server.
-    pub(crate) fn lock_conn(&self) -> std::sync::MutexGuard<'_, Connection> {
-        match self.conn.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                tracing::warn!("Recovered from poisoned mutex lock");
-                poisoned.into_inner()
-            }
-        }
-    }
-
-    pub fn migrate(&self) -> Result<()> {
-        let conn = self.lock_conn();
-
+    pub async fn migrate(&self) -> Result<()> {
         // Step 1: Create table if completely new
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS events (
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS events (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 uuid        TEXT,
                 tool        TEXT    NOT NULL,
@@ -108,25 +106,29 @@ impl Db {
                 timestamp   TEXT    NOT NULL,
                 created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );",
-        )?;
+            )
+            .await?;
 
         // Step 2: Add columns that may be missing from older schemas
-        Self::add_column_if_missing(&conn, "uuid");
-        Self::add_column_if_missing(&conn, "metadata");
-        Self::add_column_if_missing(&conn, "tags");
-        Self::add_column_if_missing(&conn, "session_id");
-        Self::add_column_if_missing(&conn, "diff");
+        self.add_column_if_missing("uuid").await?;
+        self.add_column_if_missing("metadata").await?;
+        self.add_column_if_missing("tags").await?;
+        self.add_column_if_missing("session_id").await?;
+        self.add_column_if_missing("diff").await?;
 
         // Step 3: Create indexes (safe now that all columns exist)
-        conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_tool      ON events(tool);
+        self.conn
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_events_tool      ON events(tool);
              CREATE INDEX IF NOT EXISTS idx_events_type      ON events(type);
              CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);",
-        )?;
+            )
+            .await?;
 
         // Step 4: Create event_embeddings table
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS event_embeddings (
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS event_embeddings (
                 id INTEGER PRIMARY KEY,
                 event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
                 vector BLOB NOT NULL,
@@ -134,27 +136,30 @@ impl Db {
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_embeddings_event_id ON event_embeddings(event_id);",
-        )?;
+            )
+            .await?;
 
         Ok(())
     }
 
-    fn add_column_if_missing(conn: &Connection, column: &str) {
-        let has_col: bool = conn
-            .prepare(&format!(
-                "SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='{}'",
-                column
-            ))
-            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, i64>(0)))
-            .map(|n| n > 0)
-            .unwrap_or(false);
+    async fn add_column_if_missing(&self, column: &str) -> Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name=?1")
+            .await?;
+
+        let mut rows = stmt.query([column]).await?;
+        let has_col = if let Some(row) = rows.next().await? {
+            row.get::<i64>(0).unwrap_or(0) > 0
+        } else {
+            false
+        };
 
         if !has_col {
-            let _ = conn.execute(
-                &format!("ALTER TABLE events ADD COLUMN {} TEXT", column),
-                [],
-            );
+            let sql = format!("ALTER TABLE events ADD COLUMN {} TEXT", column);
+            self.conn.execute(&sql, ()).await?;
         }
+        Ok(())
     }
 }
 
@@ -162,25 +167,21 @@ impl Db {
 mod tests {
     use super::*;
     use std::fs;
-    use std::time::SystemTime;
 
     fn get_temp_db_path() -> (PathBuf, PathBuf) {
-        let ts = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
+        let ts = uuid::Uuid::new_v4().to_string();
         let temp_dir = std::env::temp_dir().join(format!("traz_database_test_{}", ts));
         fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("traz.db");
         (db_path, temp_dir)
     }
 
-    #[test]
-    fn test_db_open_and_migrations() {
+    #[tokio::test]
+    async fn test_db_open_and_migrations() {
         let (db_path, temp_dir) = get_temp_db_path();
 
         // 1. Open the DB (which runs migrations)
-        let db = Db::open(&db_path).expect("Failed to open database");
+        let db = Db::open(&db_path).await.expect("Failed to open database");
         assert_eq!(db.path(), db_path);
 
         // Verify the database file exists
@@ -198,51 +199,52 @@ mod tests {
 
         // Verify tables are created by running simple query
         {
-            let conn = db.lock_conn();
-            let table_count: i64 = conn
-                .query_row(
+            let mut rows = db.conn
+                .query(
                     "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('events', 'event_embeddings')",
-                    [],
-                    |row| row.get(0),
+                    (),
                 )
+                .await
                 .unwrap();
+            let row = rows.next().await.unwrap().unwrap();
+            let table_count: i64 = row.get(0).unwrap();
             assert_eq!(table_count, 2);
         }
 
         // 2. Test FTS5 support call
-        let _has_fts5 = db.check_fts5_support();
+        let _has_fts5 = db.check_fts5_support().await;
 
         // 3. Clean up
         drop(db);
         fs::remove_dir_all(temp_dir).unwrap();
     }
 
-    #[test]
-    fn test_db_migrate_idempotent() {
+    #[tokio::test]
+    async fn test_db_migrate_idempotent() {
         let (db_path, temp_dir) = get_temp_db_path();
 
-        let db = Db::open(&db_path).unwrap();
+        let db = Db::open(&db_path).await.unwrap();
 
         // Running migrate again shouldn't fail or corrupt data
-        let res = db.migrate();
+        let res = db.migrate().await;
         assert!(res.is_ok());
 
         // Test add_column_if_missing logic
         {
-            let conn = db.lock_conn();
             // Try to add an existing column - should not fail
-            Db::add_column_if_missing(&conn, "title");
+            db.add_column_if_missing("title").await.unwrap();
 
             // Add a new column that's not there
-            Db::add_column_if_missing(&conn, "some_new_test_field");
+            db.add_column_if_missing("some_new_test_field")
+                .await
+                .unwrap();
 
             // Verify new column exists
-            let has_col: bool = conn
-                .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='some_new_test_field'")
-                .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, i64>(0)))
-                .map(|n| n > 0)
-                .unwrap_or(false);
-            assert!(has_col);
+            let mut stmt = db.conn.prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='some_new_test_field'").await.unwrap();
+            let mut rows = stmt.query(()).await.unwrap();
+            let row = rows.next().await.unwrap().unwrap();
+            let count: i64 = row.get(0).unwrap();
+            assert!(count > 0);
         }
 
         drop(db);
