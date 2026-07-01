@@ -498,6 +498,7 @@ impl Db {
                 let vector_bytes: Vec<u8> = row.get(1)?;
                 let event_vec: Vec<f32> = vector_bytes
                     .chunks(4)
+                    .filter(|c| c.len() == 4)
                     .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
                     .collect();
 

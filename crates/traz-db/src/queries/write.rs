@@ -76,14 +76,13 @@ impl Db {
             None
         };
 
+        let tx = self.conn.transaction().await?;
+
         // Auto-assign parent_event_id to build the DAG
         let mut final_parent_event_id = event.parent_event_id;
         if let Some(pid) = final_parent_event_id {
             // Validate the provided parent event exists
-            let mut stmt = self
-                .conn
-                .prepare("SELECT 1 FROM events WHERE id = ?1")
-                .await?;
+            let mut stmt = tx.prepare("SELECT 1 FROM events WHERE id = ?1").await?;
             let mut rows = stmt.query(libsql::params![pid]).await?;
             if rows.next().await?.is_none() {
                 anyhow::bail!("Provided parent_event_id {} does not exist", pid);
@@ -91,8 +90,7 @@ impl Db {
         } else {
             if let Some(branch) = event.branch_name.as_deref() {
                 // Try to find the latest event on the same branch
-                let mut stmt = self
-                    .conn
+                let mut stmt = tx
                     .prepare(
                         "SELECT id FROM events WHERE branch_name = ?1 ORDER BY timestamp DESC LIMIT 1",
                     )
@@ -103,7 +101,7 @@ impl Db {
                     final_parent_event_id = row.get::<i64>(0).ok();
                 } else if branch != "main" && branch != "master" {
                     // Fallback to main branch as ancestor if this is a new branch
-                    let mut stmt_main = self.conn.prepare("SELECT id FROM events WHERE branch_name IN ('main', 'master') ORDER BY timestamp DESC LIMIT 1").await?;
+                    let mut stmt_main = tx.prepare("SELECT id FROM events WHERE branch_name IN ('main', 'master') ORDER BY timestamp DESC LIMIT 1").await?;
                     let mut rows_main = stmt_main.query(libsql::params![]).await?;
                     if let Some(row) = rows_main.next().await? {
                         final_parent_event_id = row.get::<i64>(0).ok();
@@ -111,8 +109,7 @@ impl Db {
                 }
             } else {
                 // Unbranched event, look for latest unbranched event
-                let mut stmt = self
-                    .conn
+                let mut stmt = tx
                     .prepare(
                         "SELECT id FROM events WHERE branch_name IS NULL ORDER BY timestamp DESC LIMIT 1",
                     )
@@ -124,7 +121,7 @@ impl Db {
             }
         }
 
-        self.conn.execute(
+        tx.execute(
             "INSERT INTO events (uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             libsql::params![
@@ -147,7 +144,8 @@ impl Db {
         )
         .await?;
 
-        let event_id = self.conn.last_insert_rowid();
+        let event_id = tx.last_insert_rowid();
+        tx.commit().await?;
 
         if let Some(bytes) = embedding_bytes {
             let model_version = "all-MiniLM-L6-v2";
