@@ -412,8 +412,7 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let type_filter = args.get("type").and_then(|v| v.as_str());
             let tag_filter = args.get("tag").and_then(|v| v.as_str());
 
-            let search_branch = traz_integrations::git::get_current_branch()
-                .ok()
+            let search_branch = traz_integrations::git::get_current_branch_normalized()
                 .filter(|b| !b.trim().is_empty());
             let branch_names_owned: Vec<String> = if let Some(ref bn) = search_branch {
                 db.get_ancestor_branches(bn)
@@ -504,11 +503,15 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             if let Some(d) = diff {
                 event = event.with_diff(d);
             }
-            if let Some(a) = agent_id {
+            if let Some(a) = agent_id.filter(|s| !s.trim().is_empty()) {
                 event = event.with_agent(a);
             }
-            let branch = traz_integrations::git::get_current_branch().ok();
-            event = event.with_branch(branch);
+            let branch = traz_integrations::git::get_current_branch_normalized();
+            if let Some(b) = branch {
+                event = event.with_branch(Some(b));
+            } else {
+                event = event.with_branch(None);
+            }
 
             match db.insert_event(&event).await {
                 Ok(id) => tool_ok(&format!("Event created with ID {}", id)),
@@ -537,8 +540,8 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|d| d.as_bool())
                 .unwrap_or(false);
 
-            let branch_name =
-                traz_integrations::git::get_current_branch().unwrap_or_else(|_| "main".to_string());
+            let branch_name = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
             let branch_names = db
                 .get_ancestor_branches(&branch_name)
                 .await
@@ -655,16 +658,16 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                 .and_then(|s| s.as_str())
                 .unwrap_or("No summary provided.");
 
-            let branch =
-                traz_integrations::git::get_current_branch().unwrap_or_else(|_| "main".to_string());
+            let branch = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
             match db.mark_checkpoint(&branch, Some(summary.to_string())).await {
                 Ok(id) => tool_ok(&format!("Checkpoint created at event #{}", id)),
                 Err(e) => tool_err(&e.to_string()),
             }
         }
         "traz_rollback" => {
-            let branch =
-                traz_integrations::git::get_current_branch().unwrap_or_else(|_| "main".to_string());
+            let branch = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
             match db.rollback_to_checkpoint(&branch).await {
                 Ok(deleted) => {
                     if deleted > 0 {
@@ -681,7 +684,7 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let summary = args.get("summary").and_then(|s| s.as_str());
 
             if let (Some(a), Some(s)) = (agent_id, summary) {
-                let branch = traz_integrations::git::get_current_branch().ok();
+                let branch = traz_integrations::git::get_current_branch_normalized();
                 match db.rollup_agent_memory(a, s.to_string(), branch).await {
                     Ok(id) => tool_ok(&format!(
                         "Rolled up subagent memory into summary event #{}",

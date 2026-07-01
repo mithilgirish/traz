@@ -78,10 +78,8 @@ pub async fn handle_hook(
     let data_dir = db.path().parent().unwrap_or_else(|| Path::new("."));
 
     // Phase 2: Worktree Session Isolation
-    let branch_name = crate::git::get_current_branch()
-        .ok()
-        .filter(|b| !b.trim().is_empty())
-        .unwrap_or_else(|| "default".to_string());
+    let branch_name =
+        crate::git::get_current_branch_normalized().unwrap_or_else(|| "default".to_string());
     let safe_branch_name: String = branch_name
         .as_bytes()
         .iter()
@@ -233,9 +231,7 @@ pub async fn handle_hook(
                     _ => None,
                 };
 
-                let branch = crate::git::get_current_branch()
-                    .ok()
-                    .filter(|b| !b.trim().is_empty());
+                let branch = crate::git::get_current_branch_normalized();
                 let event =
                     Event::new(platform.to_string(), event_type, title, summary, None, None)
                         .with_session(input.session_id.clone().unwrap_or_default())
@@ -257,9 +253,7 @@ pub async fn handle_hook(
                     .edits
                     .as_ref()
                     .map(|e| serde_json::to_string_pretty(e).unwrap_or_default());
-                let branch = crate::git::get_current_branch()
-                    .ok()
-                    .filter(|b| !b.trim().is_empty());
+                let branch = crate::git::get_current_branch_normalized();
                 let event = Event::new(
                     platform.to_string(),
                     "refactor".to_string(),

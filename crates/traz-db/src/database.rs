@@ -133,7 +133,9 @@ impl Db {
                  CREATE INDEX IF NOT EXISTS idx_events_type         ON events(type);
                  CREATE INDEX IF NOT EXISTS idx_events_timestamp    ON events(timestamp);
                  CREATE INDEX IF NOT EXISTS idx_events_branch_name  ON events(branch_name);
-                 CREATE INDEX IF NOT EXISTS idx_events_is_checkpoint ON events(is_checkpoint);",
+                 CREATE INDEX IF NOT EXISTS idx_events_is_checkpoint ON events(is_checkpoint);
+                 CREATE INDEX IF NOT EXISTS idx_events_parent_event_id ON events(parent_event_id);
+                 CREATE INDEX IF NOT EXISTS idx_events_agent_id     ON events(agent_id);",
             )
             .await?;
 

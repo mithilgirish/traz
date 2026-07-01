@@ -337,9 +337,7 @@ async fn run_command(
             let (RESET, BOLD, DIM, CYAN, GREEN, YELLOW, MAGENTA, BLUE) = display::get_colors();
 
             let since_dt = since.as_deref().and_then(parse_duration);
-            let branch_name = traz_integrations::git::get_current_branch()
-                .ok()
-                .filter(|b| !b.trim().is_empty());
+            let branch_name = traz_integrations::git::get_current_branch_normalized();
             let branch_refs_owned: Vec<String> = if let Some(ref bn) = branch_name {
                 db.get_ancestor_branches(bn)
                     .await
@@ -444,9 +442,7 @@ async fn run_command(
                     .collect::<Vec<String>>()
             });
 
-            let current_branch = traz_integrations::git::get_current_branch()
-                .ok()
-                .filter(|b| !b.trim().is_empty());
+            let current_branch = traz_integrations::git::get_current_branch_normalized();
             let mut event = Event::new(tool, event_type, title, summary, files_vec, None)
                 .with_branch(current_branch);
             if let Some(t) = tags_vec {
@@ -479,7 +475,7 @@ async fn run_command(
                 anyhow::bail!("Event title/message cannot be empty.");
             }
 
-            let current_branch = traz_integrations::git::get_current_branch().ok();
+            let current_branch = traz_integrations::git::get_current_branch_normalized();
             let mut event = Event::new(
                 tool.clone(),
                 event_type.clone(),
@@ -564,8 +560,8 @@ async fn run_command(
         }
 
         Commands::Checkpoint { message } => {
-            let branch =
-                traz_integrations::git::get_current_branch().unwrap_or_else(|_| "main".to_string());
+            let branch = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
             let id = db.mark_checkpoint(&branch, message).await?;
             print_success(&format!(
                 "Memory checkpoint created on branch '{}' (Event #{})",
@@ -574,9 +570,7 @@ async fn run_command(
         }
 
         Commands::Rollback => {
-            let branch = traz_integrations::git::get_current_branch()
-                .ok()
-                .filter(|b| !b.trim().is_empty())
+            let branch = traz_integrations::git::get_current_branch_normalized()
                 .unwrap_or_else(|| "main".to_string());
             match db.rollback_to_checkpoint(&branch).await {
                 Ok(deleted) => {
@@ -597,7 +591,7 @@ async fn run_command(
         }
 
         Commands::Rollup { agent_id, summary } => {
-            let branch = traz_integrations::git::get_current_branch().ok();
+            let branch = traz_integrations::git::get_current_branch_normalized();
             match db.rollup_agent_memory(&agent_id, summary, branch).await {
                 Ok(id) => {
                     print_success(&format!(
@@ -665,8 +659,28 @@ async fn run_command(
             } else {
                 traz_core::OutputFormat::Markdown
             };
+            let branch_name = traz_integrations::git::get_current_branch_normalized()
+                .unwrap_or_else(|| "main".to_string());
+            let branch_names = db
+                .get_ancestor_branches(&branch_name)
+                .await
+                .unwrap_or_else(|_| vec!["main".to_string()]);
+            let branch_refs: Vec<&str> = branch_names.iter().map(|s| s.as_str()).collect();
+            let branch_filter = if branch_refs.is_empty() {
+                None
+            } else {
+                Some(branch_refs)
+            };
+
             let ctx = db
-                .get_context_optimized(query.as_deref(), limit, format, budget, deduplicate, None)
+                .get_context_optimized(
+                    query.as_deref(),
+                    limit,
+                    format,
+                    budget,
+                    deduplicate,
+                    branch_filter,
+                )
                 .await?;
             if json {
                 let data = serde_json::json!({

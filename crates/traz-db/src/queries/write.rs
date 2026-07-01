@@ -11,6 +11,13 @@ impl Db {
         validate_field("event_type", &event.event_type, MAX_FIELD_LEN)?;
         validate_field("title", &event.title, MAX_FIELD_LEN)?;
 
+        if let Some(ref branch) = event.branch_name {
+            validate_field("branch_name", branch, MAX_FIELD_LEN)?;
+        }
+        if let Some(ref agent) = event.agent_id {
+            validate_field("agent_id", agent, MAX_FIELD_LEN)?;
+        }
+
         if let Some(ref summary) = event.summary {
             validate_field("summary", summary, MAX_SUMMARY_LEN)?;
         }
@@ -278,6 +285,12 @@ impl Db {
         summary: String,
         branch_name: Option<String>,
     ) -> Result<i64> {
+        validate_field("agent_id", agent_id, MAX_FIELD_LEN)?;
+        validate_field("summary", &summary, MAX_SUMMARY_LEN)?;
+        if let Some(ref b) = branch_name {
+            validate_field("branch_name", b, MAX_FIELD_LEN)?;
+        }
+
         let tx = self.conn.transaction().await?;
 
         // 1. Delete episodic events for the subagent, scoped by branch when provided.

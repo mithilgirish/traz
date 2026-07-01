@@ -222,9 +222,7 @@ pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>)
             }
 
             let title = args.join(" ");
-            let branch = traz_integrations::git::get_current_branch()
-                .ok()
-                .filter(|b| !b.trim().is_empty());
+            let branch = traz_integrations::git::get_current_branch_normalized();
             let event = Event {
                 id: None,
                 uuid: uuid::Uuid::new_v4().to_string(),

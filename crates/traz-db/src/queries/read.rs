@@ -372,11 +372,10 @@ impl Db {
                     self.get_recent_events_for_branch(limit, branches[0])
                         .await?
                 } else {
-                    // Fetch per branch and merge, capped at limit total
-                    let per_branch = (limit / branches.len() as u32).max(1);
+                    // Fetch full limit per branch and merge
                     let mut merged = Vec::new();
                     for b in branches {
-                        let mut evs = self.get_recent_events_for_branch(per_branch, b).await?;
+                        let mut evs = self.get_recent_events_for_branch(limit, b).await?;
                         merged.append(&mut evs);
                     }
                     // Re-sort by timestamp descending and cap
