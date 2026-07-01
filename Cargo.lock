@@ -4360,6 +4360,7 @@ dependencies = [
  "dialoguer",
  "dirs 5.0.1",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

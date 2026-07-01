@@ -600,22 +600,45 @@ pub fn build_optimized_context(
                 let empty_msg = "(no events fit in budget)\n";
                 budget.consume(empty_msg);
                 output.push_str(empty_msg);
-            } else if let Ok(json_bytes) = serde_json::to_vec(&projected_events)
-                && let Ok(toon_str) = _etoon::toon::encode(&json_bytes)
-            {
-                let formatted = format!("{}\n", toon_str);
-                if budget.would_fit(&formatted) {
+            } else {
+                let mut encoded = None;
+                let mut encode_error = false;
+
+                while valid_count > 0 {
+                    match serde_json::to_vec(&projected_events[..valid_count]) {
+                        Ok(json_bytes) => match _etoon::toon::encode(&json_bytes) {
+                            Ok(toon_str) => {
+                                let formatted = format!("{}\n", toon_str);
+                                if budget.would_fit(&formatted) {
+                                    encoded = Some(formatted);
+                                    break;
+                                }
+                            }
+                            Err(_) => {
+                                encode_error = true;
+                                break;
+                            }
+                        },
+                        Err(_) => {
+                            encode_error = true;
+                            break;
+                        }
+                    }
+                    valid_count -= 1;
+                }
+
+                if let Some(formatted) = encoded {
                     budget.consume(&formatted);
                     output.push_str(&formatted);
+                } else if encode_error {
+                    let err = "(toon encoding failed)\n";
+                    budget.consume(err);
+                    output.push_str(err);
                 } else {
                     let trunc = "...(truncated)\n";
                     budget.consume(trunc);
                     output.push_str(trunc);
                 }
-            } else {
-                let err = "(toon encoding failed)\n";
-                budget.consume(err);
-                output.push_str(err);
             }
         }
     }

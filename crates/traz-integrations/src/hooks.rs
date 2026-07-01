@@ -151,15 +151,17 @@ pub async fn handle_hook(
             let mut additional_context = String::new();
             if let Some(prompt) = input.prompt.as_deref().filter(|p| p.trim().len() >= 20) {
                 let search_branch_names: Vec<String> = if let Some(ref bn) = branch_name_opt {
-                    db.get_ancestor_branches(bn)
-                        .await
-                        .unwrap_or_else(|_| vec![bn.clone()])
+                    let mut branches = db.get_ancestor_branches(bn).await.unwrap_or_default();
+                    if branches.is_empty() {
+                        branches.push(bn.clone());
+                    }
+                    branches
                 } else {
                     Vec::new()
                 };
                 let search_branch_refs: Vec<&str> =
                     search_branch_names.iter().map(|s| s.as_str()).collect();
-                let filters = if search_branch_refs.is_empty() {
+                let filters = if branch_name_opt.is_none() {
                     // Outside git — search all branches (NULL + named)
                     traz_db::SearchFilters::default()
                 } else {
@@ -209,14 +211,16 @@ pub async fn handle_hook(
         "context" => {
             let limit = 10;
             let ctx_branch_names: Vec<String> = if let Some(ref bn) = branch_name_opt {
-                db.get_ancestor_branches(bn)
-                    .await
-                    .unwrap_or_else(|_| vec![bn.clone()])
+                let mut branches = db.get_ancestor_branches(bn).await.unwrap_or_default();
+                if branches.is_empty() {
+                    branches.push(bn.clone());
+                }
+                branches
             } else {
                 Vec::new()
             };
             let ctx_branch_refs: Vec<&str> = ctx_branch_names.iter().map(|s| s.as_str()).collect();
-            let branch_filter: Option<Vec<&str>> = if ctx_branch_refs.is_empty() {
+            let branch_filter: Option<Vec<&str>> = if branch_name_opt.is_none() {
                 // Outside git — no branch filter so NULL-branch events are included
                 None
             } else {
@@ -396,7 +400,7 @@ mod tests {
         let sessions_dir = test_dir.join("sessions");
         let _ = std::fs::create_dir_all(&sessions_dir);
         let branch_name =
-            crate::git::get_current_branch_normalized().unwrap_or_else(|| "main".to_string());
+            crate::git::get_current_branch_normalized().unwrap_or_else(|| "_global".to_string());
         let safe_branch_name = session_key_for_branch(&branch_name);
         let active_session_path =
             sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
@@ -456,7 +460,7 @@ mod tests {
         let sessions_dir = test_dir.join("sessions");
         let _ = std::fs::create_dir_all(&sessions_dir);
         let branch_name =
-            crate::git::get_current_branch_normalized().unwrap_or_else(|| "main".to_string());
+            crate::git::get_current_branch_normalized().unwrap_or_else(|| "_global".to_string());
         let safe_branch_name = session_key_for_branch(&branch_name);
         let active_session_path =
             sessions_dir.join(format!("active_session_{}.json", safe_branch_name));

@@ -231,7 +231,7 @@ fn build_tool_definitions(experimental: bool) -> Value {
                 "properties": {
                     "query": { "type": "string", "description": "Optional search query to fetch only context relevant to your current task." },
                     "limit": { "type": "number", "description": "Number of recent events to include (default 10)" },
-                    "format": { "type": "string", "description": "Output format: 'markdown' (default) or 'dense' (AI-optimized, uses pipe-delimited single-line format, type abbreviations, diff summaries — ~50-70% fewer tokens)" },
+                    "format": { "type": "string", "description": "Output format: 'markdown' (default, human-readable prose), 'dense' (AI-optimized, ~50-70% fewer tokens), or 'toon' (TOON encoding, maximally token-efficient)" },
                     "max_tokens": { "type": "number", "description": "Optional token budget. Output is automatically truncated to fit, using progressive detail reduction." },
                     "deduplicate": { "type": "boolean", "description": "Merge near-duplicate events to save tokens (default false). Uses Jaccard similarity on titles." }
                 }
@@ -309,7 +309,7 @@ fn build_tool_definitions(experimental: bool) -> Value {
                 "type": "object",
                 "properties": {
                     "hours": { "type": "number", "description": "Number of hours to look back (default 24, max 168=1week)" },
-                    "format": { "type": "string", "description": "Output format: 'markdown' (default) or 'dense' (AI-optimized, ~50-70% fewer tokens)" }
+                    "format": { "type": "string", "description": "Output format: 'markdown' (default, human-readable prose), 'dense' (AI-optimized, ~50-70% fewer tokens), or 'toon' (TOON encoding, maximally token-efficient)" }
                 }
             }
         }),
@@ -679,10 +679,7 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let summary = args.get("summary").and_then(|s| s.as_str());
 
             if let (Some(a), Some(s)) = (agent_id, summary) {
-                let branch = Some(
-                    traz_integrations::git::get_current_branch_normalized()
-                        .unwrap_or_else(|| "main".to_string()),
-                );
+                let branch = traz_integrations::git::get_current_branch_normalized();
                 match db.rollup_agent_memory(a, s.to_string(), branch).await {
                     Ok(id) => tool_ok(&format!(
                         "Rolled up subagent memory into summary event #{}",
