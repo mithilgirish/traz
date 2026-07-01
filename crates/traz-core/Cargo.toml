@@ -10,8 +10,9 @@ description = "Core types and models for the traz engineering context layer"
 chrono = { workspace = true }
 dirs = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json.workspace = true
 uuid = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
+etoon = "0.6.0"

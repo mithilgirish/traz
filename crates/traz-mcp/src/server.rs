@@ -380,7 +380,7 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
 
             match db.get_recent_events(limit).await {
                 Ok(events) => match format {
-                    traz_core::OutputFormat::Dense => {
+                    traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon => {
                         let mut budget = match max_tokens {
                             Some(n) => traz_core::TokenBudget::new(n),
                             None => traz_core::TokenBudget::unlimited(),
@@ -684,7 +684,10 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             let summary = args.get("summary").and_then(|s| s.as_str());
 
             if let (Some(a), Some(s)) = (agent_id, summary) {
-                let branch = traz_integrations::git::get_current_branch_normalized();
+                let branch = Some(
+                    traz_integrations::git::get_current_branch_normalized()
+                        .unwrap_or_else(|| "main".to_string()),
+                );
                 match db.rollup_agent_memory(a, s.to_string(), branch).await {
                     Ok(id) => tool_ok(&format!(
                         "Rolled up subagent memory into summary event #{}",
@@ -721,11 +724,11 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
                         format!("Recap — Last {} hours ({} events)\n", hours, events.len());
                     output.push_str("─────────────────────────────────────\n");
                     match format {
-                        traz_core::OutputFormat::Dense => {
+                        traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon => {
                             let mut budget = traz_core::TokenBudget::unlimited();
                             let dense = traz_core::build_optimized_context(
                                 events,
-                                traz_core::OutputFormat::Dense,
+                                format,
                                 &mut budget,
                                 false,
                                 None,

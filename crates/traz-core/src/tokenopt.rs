@@ -65,12 +65,15 @@ pub enum OutputFormat {
     Markdown,
     /// Dense single-line format optimized for AI token consumption.
     Dense,
+    /// Token-Oriented Object Notation, highly optimized for LLMs
+    Toon,
 }
 
 impl OutputFormat {
     pub fn from_str_opt(s: Option<&str>) -> Self {
         match s {
             Some("dense" | "compact" | "ai") => Self::Dense,
+            Some("toon") => Self::Toon,
             _ => Self::Markdown,
         }
     }
@@ -377,6 +380,7 @@ pub fn build_optimized_context(
         let header_line = match format {
             OutputFormat::Markdown => format!("{h}\n\n"),
             OutputFormat::Dense => format!("# {h}\n"),
+            OutputFormat::Toon => format!("# {h}\n"),
         };
         if budget.would_fit(&header_line) {
             budget.consume(&header_line);
@@ -532,6 +536,31 @@ pub fn build_optimized_context(
                 }
 
                 output.push('\n');
+            }
+        }
+        OutputFormat::Toon => {
+            let mut valid_events = events;
+            loop {
+                if valid_events.is_empty() {
+                    let empty_msg = "(no events fit in budget)\n";
+                    budget.consume(empty_msg);
+                    output.push_str(empty_msg);
+                    break;
+                }
+
+                if let Ok(json_bytes) = serde_json::to_vec(&valid_events)
+                    && let Ok(toon_str) = _etoon::toon::encode(&json_bytes)
+                {
+                    let formatted = format!("{}\n", toon_str);
+                    if budget.would_fit(&formatted) {
+                        budget.consume(&formatted);
+                        output.push_str(&formatted);
+                        break;
+                    }
+                }
+
+                // If we get here, it didn't fit or failed to encode, drop the oldest event
+                valid_events.pop();
             }
         }
     }

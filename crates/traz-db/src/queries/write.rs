@@ -78,7 +78,17 @@ impl Db {
 
         // Auto-assign parent_event_id to build the DAG
         let mut final_parent_event_id = event.parent_event_id;
-        if final_parent_event_id.is_none() {
+        if let Some(pid) = final_parent_event_id {
+            // Validate the provided parent event exists
+            let mut stmt = self
+                .conn
+                .prepare("SELECT 1 FROM events WHERE id = ?1")
+                .await?;
+            let mut rows = stmt.query(libsql::params![pid]).await?;
+            if rows.next().await?.is_none() {
+                anyhow::bail!("Provided parent_event_id {} does not exist", pid);
+            }
+        } else {
             if let Some(branch) = event.branch_name.as_deref() {
                 // Try to find the latest event on the same branch
                 let mut stmt = self
@@ -314,7 +324,7 @@ impl Db {
             .await?
         } else {
             tx.execute(
-                "DELETE FROM events WHERE agent_id = ?1",
+                "DELETE FROM events WHERE agent_id = ?1 AND branch_name IS NULL",
                 libsql::params![agent_id],
             )
             .await?
@@ -341,7 +351,17 @@ impl Db {
                 None
             }
         } else {
-            None
+            let mut rows = tx
+                .query(
+                    "SELECT id FROM events WHERE branch_name IS NULL ORDER BY id DESC LIMIT 1",
+                    libsql::params![],
+                )
+                .await?;
+            if let Some(row) = rows.next().await? {
+                row.get::<i64>(0).ok()
+            } else {
+                None
+            }
         };
 
         // 3. Insert the semantic summary event.

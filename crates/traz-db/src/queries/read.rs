@@ -323,7 +323,7 @@ impl Db {
             traz_core::OutputFormat::Markdown => {
                 format!("# traz — Engineering Context Summary\n\n**Total events:** {total}\n\n")
             }
-            traz_core::OutputFormat::Dense => {
+            traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon => {
                 format!("traz|events:{total}\n")
             }
         };
@@ -343,7 +343,7 @@ impl Db {
                     s.push('\n');
                     s
                 }
-                traz_core::OutputFormat::Dense => {
+                traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon => {
                     let tools: Vec<String> = stats
                         .iter()
                         .map(|(tool, count)| format!("{tool}:{count}"))
@@ -408,8 +408,12 @@ impl Db {
 
         ctx.push_str(&optimized);
 
-        // ── Budget usage footer (dense only) ────────────────────
-        if matches!(format, traz_core::OutputFormat::Dense) && !budget.is_unlimited() {
+        // ── Budget usage footer (dense/toon only) ────────────────
+        if matches!(
+            format,
+            traz_core::OutputFormat::Dense | traz_core::OutputFormat::Toon
+        ) && !budget.is_unlimited()
+        {
             let footer = format!(
                 "---budget|used:{}|max:{}\n",
                 budget.max_tokens - budget.remaining(),

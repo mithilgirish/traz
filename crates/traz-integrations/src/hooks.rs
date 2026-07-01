@@ -137,7 +137,10 @@ pub async fn handle_hook(
 
             let mut additional_context = String::new();
             if let Some(prompt) = input.prompt.as_deref().filter(|p| p.trim().len() >= 20) {
-                let filters = traz_db::SearchFilters::default();
+                let filters = traz_db::SearchFilters {
+                    branch_names: Some(vec![branch_name.as_str()]),
+                    ..Default::default()
+                };
                 let matches = db
                     .hybrid_search(prompt, &filters, 3)
                     .await
@@ -178,7 +181,18 @@ pub async fn handle_hook(
 
         "context" => {
             let limit = 10;
-            match db.get_context_summary(None, limit).await {
+            let branch_filter = Some(vec![branch_name.as_str()]);
+            match db
+                .get_context_optimized(
+                    None,
+                    limit,
+                    traz_core::OutputFormat::Markdown,
+                    None,
+                    false,
+                    branch_filter,
+                )
+                .await
+            {
                 Ok(context_summary) => HookOutput {
                     hookSpecificOutput: Some(HookSpecificOutput {
                         hookEventName: "SessionStart".to_string(),
