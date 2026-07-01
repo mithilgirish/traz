@@ -32,8 +32,8 @@ pub struct CubyAppState {
 }
 
 impl CubyAppState {
-    pub fn new(db: Arc<Db>) -> Self {
-        let count = db.count_events().unwrap_or(0);
+    pub async fn new(db: Arc<Db>) -> Self {
+        let count = db.count_events().await.unwrap_or(0);
         let natural_mood = if count == 0 {
             "sad"
         } else if count <= 10 {
@@ -102,9 +102,9 @@ impl Drop for RawModeGuard {
 }
 
 /// Run the Ratatui-based Cuby Pet game.
-pub fn run_cuby_game(db_path: PathBuf) -> Result<()> {
-    let db = Arc::new(Db::open(&db_path)?);
-    let mut app_state = CubyAppState::new(db);
+pub async fn run_cuby_game(db_path: PathBuf) -> Result<()> {
+    let db = Arc::new(Db::open(&db_path).await?);
+    let mut app_state = CubyAppState::new(db).await;
 
     let _guard = RawModeGuard::new()?;
     let backend = ratatui::backend::CrosstermBackend::new(std::io::stdout());
@@ -145,22 +145,22 @@ pub fn run_cuby_game(db_path: PathBuf) -> Result<()> {
             app_state.mood = moods[app_state.poke_ticks as usize % moods.len()].to_string();
             app_state.dialogue = "Hey! That tickles! ⚡".to_string();
         } else if app_state.current_action == "pet" {
-            let dialog = get_context_aware_dialog(&app_state, "pet");
+            let dialog = get_context_aware_dialog(&app_state, "pet").await;
             app_state.current_action = String::new();
             app_state.mood = app_state.get_natural_mood();
             app_state.dialogue = dialog;
         } else if app_state.current_action == "feed" {
-            let dialog = get_context_aware_dialog(&app_state, "feed");
+            let dialog = get_context_aware_dialog(&app_state, "feed").await;
             app_state.current_action = String::new();
             app_state.mood = app_state.get_natural_mood();
             app_state.dialogue = dialog;
         } else if app_state.current_action == "poke" {
-            let dialog = get_context_aware_dialog(&app_state, "poke");
+            let dialog = get_context_aware_dialog(&app_state, "poke").await;
             app_state.current_action = String::new();
             app_state.mood = app_state.get_natural_mood();
             app_state.dialogue = dialog;
         } else if app_state.current_action == "clean" {
-            let dialog = get_context_aware_dialog(&app_state, "clean");
+            let dialog = get_context_aware_dialog(&app_state, "clean").await;
             app_state.current_action = String::new();
             app_state.mood = app_state.get_natural_mood();
             app_state.dialogue = dialog;
@@ -186,7 +186,7 @@ pub fn run_cuby_game(db_path: PathBuf) -> Result<()> {
             && let Event::Key(key) = event::read()?
             && key.kind != KeyEventKind::Release
         {
-            handle_cuby_key(&mut app_state, key.code)?;
+            handle_cuby_key(&mut app_state, key.code).await?;
         }
 
         if app_state.quit {
@@ -197,7 +197,7 @@ pub fn run_cuby_game(db_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn handle_cuby_key(app: &mut CubyAppState, code: KeyCode) -> Result<()> {
+async fn handle_cuby_key(app: &mut CubyAppState, code: KeyCode) -> Result<()> {
     if app.ask_mode {
         match code {
             KeyCode::Esc => {
@@ -210,7 +210,7 @@ fn handle_cuby_key(app: &mut CubyAppState, code: KeyCode) -> Result<()> {
                 app.query_buffer.clear();
 
                 let filters = traz_db::SearchFilters::default();
-                let results = app.db.search_events(&query, &filters, 5)?;
+                let results = app.db.search_events(&query, &filters, 5).await?;
 
                 app.search_results.clear();
                 if results.is_empty() {
@@ -601,8 +601,8 @@ fn get_random_song() -> &'static str {
     songs[idx]
 }
 
-fn get_context_aware_dialog(app: &CubyAppState, action: &str) -> String {
-    let recent = app.db.get_recent_events(3).unwrap_or_default();
+async fn get_context_aware_dialog(app: &CubyAppState, action: &str) -> String {
+    let recent = app.db.get_recent_events(3).await.unwrap_or_default();
     let last_title = recent
         .first()
         .map(|e| e.title.as_str())

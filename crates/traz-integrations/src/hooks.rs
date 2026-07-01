@@ -56,7 +56,7 @@ pub struct ActiveSessionState {
 ///
 /// Parses standard input payload, updates the shared session registry, logs events,
 /// and returns the stdout JSON payload for context injection.
-pub fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) -> Result<String> {
+pub async fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) -> Result<String> {
     let input: HookInput = serde_json::from_str(stdin_data).unwrap_or(HookInput {
         session_id: None,
         cwd: None,
@@ -115,7 +115,7 @@ pub fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) 
             let mut additional_context = String::new();
             if let Some(prompt) = input.prompt.as_deref().filter(|p| p.trim().len() >= 20) {
                 let filters = traz_db::SearchFilters::default();
-                let matches = db.hybrid_search(prompt, &filters, 3).unwrap_or_default();
+                let matches = db.hybrid_search(prompt, &filters, 3).await.unwrap_or_default();
                 if !matches.is_empty() {
                     additional_context.push_str("### Relevant Historical Context:\n");
                     for (event, _) in matches {
@@ -152,7 +152,7 @@ pub fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) 
 
         "context" => {
             let limit = 10;
-            let context_summary = db.get_context_summary(None, limit).unwrap_or_default();
+            let context_summary = db.get_context_summary(None, limit).await.unwrap_or_default();
             HookOutput {
                 hookSpecificOutput: Some(HookSpecificOutput {
                     hookEventName: "SessionStart".to_string(),
@@ -201,7 +201,7 @@ pub fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) 
                 let event =
                     Event::new(platform.to_string(), event_type, title, summary, None, None)
                         .with_session(input.session_id.clone().unwrap_or_default());
-                let _ = db.insert_event(&event);
+                let _ = db.insert_event(&event).await;
             }
 
             HookOutput {
@@ -227,7 +227,7 @@ pub fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) 
                     None,
                 )
                 .with_session(input.session_id.clone().unwrap_or_default());
-                let _ = db.insert_event(&event);
+                let _ = db.insert_event(&event).await;
             }
 
             HookOutput {
@@ -252,7 +252,7 @@ pub fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) 
                     None,
                 )
                 .with_session(input.session_id.clone().unwrap_or_default());
-                let _ = db.insert_event(&event);
+                let _ = db.insert_event(&event).await;
             }
 
             HookOutput {
@@ -276,7 +276,7 @@ pub fn handle_hook(db: &Db, platform: &str, event_type: &str, stdin_data: &str) 
 mod tests {
     use super::*;
 
-    fn setup_test_env(test_name: &str) -> (Db, std::path::PathBuf) {
+    async fn setup_test_env(test_name: &str) -> (Db, std::path::PathBuf) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -284,7 +284,7 @@ mod tests {
         let unique_dir = std::env::temp_dir().join(format!("traz_test_{}_{}", test_name, ts));
         let _ = std::fs::create_dir_all(&unique_dir);
         let db_path = unique_dir.join("traz.db");
-        let db = Db::open(&db_path).unwrap();
+        let db = Db::open(&db_path).await.unwrap();
         (db, unique_dir)
     }
 
@@ -292,9 +292,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(unique_dir);
     }
 
-    #[test]
-    fn test_handle_hook_session_init_with_shared_memory() {
-        let (db, test_dir) = setup_test_env("session_init_shared");
+    #[tokio::test]
+    async fn test_handle_hook_session_init_with_shared_memory() {
+        let (db, test_dir) = setup_test_env("session_init_shared").await;
 
         // Pre-populate active_session.json with another tool active recently
         let active_session_path = test_dir.join("active_session.json");
@@ -317,7 +317,7 @@ mod tests {
             "prompt": "Hello this is a test prompt"
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload).unwrap();
+        let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload).await.unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
 
         assert!(res.should_continue);
@@ -344,9 +344,9 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_hook_session_init_expired_shared_memory() {
-        let (db, test_dir) = setup_test_env("session_init_expired");
+    #[tokio::test]
+    async fn test_handle_hook_session_init_expired_shared_memory() {
+        let (db, test_dir) = setup_test_env("session_init_expired").await;
 
         // Pre-populate active_session.json with another tool active long ago
         let active_session_path = test_dir.join("active_session.json");
@@ -369,7 +369,7 @@ mod tests {
             "prompt": "Hello this is a test prompt"
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload).unwrap();
+        let res_str = handle_hook(&db, "cursor", "session-init", stdin_payload).await.unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
 
         assert!(res.should_continue);
@@ -380,11 +380,11 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_hook_context() {
-        let (db, test_dir) = setup_test_env("context");
+    #[tokio::test]
+    async fn test_handle_hook_context() {
+        let (db, test_dir) = setup_test_env("context").await;
 
-        let res_str = handle_hook(&db, "cursor", "context", "{}").unwrap();
+        let res_str = handle_hook(&db, "cursor", "context", "{}").await.unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
 
         assert!(res.should_continue);
@@ -399,9 +399,9 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_hook_observation() {
-        let (db, test_dir) = setup_test_env("observation");
+    #[tokio::test]
+    async fn test_handle_hook_observation() {
+        let (db, test_dir) = setup_test_env("observation").await;
 
         let stdin_payload = r#"{
             "conversation_id": "session-obs-789",
@@ -411,12 +411,12 @@ mod tests {
             "exit_code": 0
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "observation", stdin_payload).unwrap();
+        let res_str = handle_hook(&db, "cursor", "observation", stdin_payload).await.unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
         assert!(res.should_continue);
 
         // Verify database entry
-        let events = db.get_recent_events(10).unwrap();
+        let events = db.get_recent_events(10).await.unwrap();
         assert_eq!(events.len(), 1);
         let event = &events[0];
         assert_eq!(event.tool, "cursor");
@@ -429,9 +429,9 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_hook_file_edit() {
-        let (db, test_dir) = setup_test_env("file_edit");
+    #[tokio::test]
+    async fn test_handle_hook_file_edit() {
+        let (db, test_dir) = setup_test_env("file_edit").await;
 
         let stdin_payload = r#"{
             "conversation_id": "session-edit-101",
@@ -439,12 +439,12 @@ mod tests {
             "edits": { "insertions": 10 }
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "file-edit", stdin_payload).unwrap();
+        let res_str = handle_hook(&db, "cursor", "file-edit", stdin_payload).await.unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
         assert!(res.should_continue);
 
         // Verify database entry
-        let events = db.get_recent_events(10).unwrap();
+        let events = db.get_recent_events(10).await.unwrap();
         assert_eq!(events.len(), 1);
         let event = &events[0];
         assert_eq!(event.tool, "cursor");
@@ -459,21 +459,21 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_hook_summarize() {
-        let (db, test_dir) = setup_test_env("summarize");
+    #[tokio::test]
+    async fn test_handle_hook_summarize() {
+        let (db, test_dir) = setup_test_env("summarize").await;
 
         let stdin_payload = r#"{
             "conversation_id": "session-sum-202",
             "last_assistant_message": "Completed implementing tests."
         }"#;
 
-        let res_str = handle_hook(&db, "cursor", "summarize", stdin_payload).unwrap();
+        let res_str = handle_hook(&db, "cursor", "summarize", stdin_payload).await.unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
         assert!(res.should_continue);
 
         // Verify database entry
-        let events = db.get_recent_events(10).unwrap();
+        let events = db.get_recent_events(10).await.unwrap();
         assert_eq!(events.len(), 1);
         let event = &events[0];
         assert_eq!(event.tool, "cursor");
@@ -488,11 +488,11 @@ mod tests {
         cleanup_test_env(test_dir);
     }
 
-    #[test]
-    fn test_handle_hook_invalid_stdin() {
-        let (db, test_dir) = setup_test_env("invalid_stdin");
+    #[tokio::test]
+    async fn test_handle_hook_invalid_stdin() {
+        let (db, test_dir) = setup_test_env("invalid_stdin").await;
 
-        let res_str = handle_hook(&db, "cursor", "session-init", "{invalid-json}").unwrap();
+        let res_str = handle_hook(&db, "cursor", "session-init", "{invalid-json}").await.unwrap();
         let res: HookOutput = serde_json::from_str(&res_str).unwrap();
         assert!(res.should_continue);
         assert!(res.hookSpecificOutput.is_none());

@@ -10,8 +10,12 @@ description = "SQLite storage layer for traz"
 traz-core = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
-rusqlite = { workspace = true }
+libsql = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 dirs = { workspace = true }
 traz-embeddings = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

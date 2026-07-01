@@ -38,6 +38,8 @@ pub struct App {
     pub status_message_time: Option<Instant>,
     pub scroll_offset: usize,
     pub db: Db,
+    pub total_count: i64,
+    pub rewind_count: usize,
 
     // Aesthetic Preference Switches
     pub is_dark_mode: bool,
@@ -49,7 +51,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(db: Db, events: Vec<Event>, custom_theme_path: std::path::PathBuf) -> Self {
+    pub fn new(db: Db, events: Vec<Event>, total_count: i64, custom_theme_path: std::path::PathBuf) -> Self {
         Self {
             all_events: events.clone(),
             events,
@@ -62,6 +64,8 @@ impl App {
             status_message_time: None,
             scroll_offset: 0,
             db,
+            total_count,
+            rewind_count: 0,
             is_dark_mode: true,
             theme_option: ThemeOption::Dark,
             custom_theme_path,
@@ -74,7 +78,7 @@ impl App {
     /// Update the current events list based on search.
     /// If embeddings are enabled, it performs a semantic search.
     /// Otherwise, it performs a keyword search in the database.
-    pub fn filter_events(&mut self) {
+    pub async fn filter_events(&mut self) {
         self.search_scores.clear();
 
         if self.search_query.is_empty() {
@@ -85,6 +89,7 @@ impl App {
         match self
             .db
             .hybrid_search(&self.search_query, &traz_db::SearchFilters::default(), 50)
+            .await
         {
             Ok(results) => {
                 self.events = results.iter().map(|(e, _)| e.clone()).collect();
@@ -120,10 +125,12 @@ impl App {
     }
 
     /// Reload events from the database
-    pub fn reload_events(&mut self) -> anyhow::Result<()> {
-        let events = self.db.get_recent_events(100)?;
+    pub async fn reload_events(&mut self) -> anyhow::Result<()> {
+        let events = self.db.get_recent_events(100).await?;
+        let total_count = self.db.count_events().await.unwrap_or(0);
         self.all_events = events;
-        self.filter_events();
+        self.total_count = total_count;
+        self.filter_events().await;
         Ok(())
     }
 }
@@ -134,7 +141,7 @@ mod tests {
     use std::fs;
     use std::time::{Duration, SystemTime};
 
-    fn setup_test_db(test_name: &str) -> (Db, std::path::PathBuf) {
+    async fn setup_test_db(test_name: &str) -> (Db, std::path::PathBuf) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -143,13 +150,13 @@ mod tests {
             std::env::temp_dir().join(format!("traz_tui_app_test_{}_{}", test_name, ts));
         let _ = fs::create_dir_all(&unique_dir);
         let db_path = unique_dir.join("traz.db");
-        let db = Db::open(&db_path).unwrap();
+        let db = Db::open(&db_path).await.unwrap();
         (db, unique_dir)
     }
 
-    #[test]
-    fn test_app_initialization() {
-        let (db, test_dir) = setup_test_db("init");
+    #[tokio::test]
+    async fn test_app_initialization() {
+        let (db, test_dir) = setup_test_db("init").await;
         let custom_theme = test_dir.join("theme.json");
 
         let event1 = traz_core::Event::new(
@@ -160,7 +167,7 @@ mod tests {
             None,
             None,
         );
-        let app = App::new(db, vec![event1.clone()], custom_theme.clone());
+        let app = App::new(db, vec![event1.clone()], 1, custom_theme.clone());
 
         assert_eq!(app.all_events.len(), 1);
         assert_eq!(app.events.len(), 1);
@@ -175,10 +182,10 @@ mod tests {
         let _ = fs::remove_dir_all(test_dir);
     }
 
-    #[test]
-    fn test_app_status_message_lifecycle() {
-        let (db, test_dir) = setup_test_db("status");
-        let mut app = App::new(db, vec![], test_dir.join("theme.json"));
+    #[tokio::test]
+    async fn test_app_status_message_lifecycle() {
+        let (db, test_dir) = setup_test_db("status").await;
+        let mut app = App::new(db, vec![], 0, test_dir.join("theme.json"));
 
         app.set_status("Hello status");
         assert_eq!(app.status_message, Some("Hello status".to_string()));
@@ -199,9 +206,9 @@ mod tests {
         let _ = fs::remove_dir_all(test_dir);
     }
 
-    #[test]
-    fn test_app_filtering_and_reloading() {
-        let (db, test_dir) = setup_test_db("filter");
+    #[tokio::test]
+    async fn test_app_filtering_and_reloading() {
+        let (db, test_dir) = setup_test_db("filter").await;
 
         // Insert events directly to DB so reloading pulls them
         let e1 = traz_core::Event::new(
@@ -220,28 +227,29 @@ mod tests {
             None,
             None,
         );
-        db.insert_event(&e1).unwrap();
-        db.insert_event(&e2).unwrap();
+        db.insert_event(&e1).await.unwrap();
+        db.insert_event(&e2).await.unwrap();
 
         let mut app = App::new(
             db,
             vec![e1.clone(), e2.clone()],
+            2,
             test_dir.join("theme.json"),
         );
 
         // 1. Keyword filter
         app.search_query = "error".to_string();
-        app.filter_events();
+        app.filter_events().await;
         assert_eq!(app.events.len(), 1);
         assert_eq!(app.events[0].title, "Compile error solved");
 
         // 2. Clear query
         app.search_query.clear();
-        app.filter_events();
+        app.filter_events().await;
         assert_eq!(app.events.len(), 2);
 
         // 3. Reload from DB
-        app.reload_events().unwrap();
+        app.reload_events().await.unwrap();
         assert_eq!(app.all_events.len(), 2);
 
         let _ = fs::remove_dir_all(test_dir);

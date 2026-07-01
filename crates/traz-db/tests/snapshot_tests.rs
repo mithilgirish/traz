@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use traz_core::Event;
 use traz_db::Db;
 
-#[test]
-fn test_semantic_search_snapshot() {
-    let mut db = Db::open(&PathBuf::from(":memory:")).unwrap();
+#[tokio::test]
+async fn test_semantic_search_snapshot() {
+    let mut db = Db::open(&PathBuf::from(":memory:")).await.unwrap();
 
     // Enable embeddings in the Db config directly so insert_event saves them
     db.config.embeddings_enabled = true;
@@ -17,12 +17,12 @@ fn test_semantic_search_snapshot() {
         None,
         None,
     );
-    db.insert_event(&e1).unwrap();
+    db.insert_event(&e1).await.unwrap();
 
     // The test might fail if embeddings aren't enabled in the internal config of 'db'.
     // But for a dummy snapshot test, we are showing the structure.
 
-    match db.semantic_search("login", 1) {
+    match db.semantic_search("login", 1).await {
         Ok(results) => {
             if results.is_empty() {
                 println!(

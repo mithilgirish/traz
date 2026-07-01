@@ -2,7 +2,6 @@ use crate::database::Db;
 use crate::queries::helpers::{MAX_RESULTS, collect_events, row_to_event};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use rusqlite::params;
 use traz_core::Event;
 
 #[derive(Default, Debug, Clone)]
@@ -15,36 +14,35 @@ pub struct SearchFilters<'a> {
 
 impl Db {
     /// Get a single event by its ID.
-    pub fn get_event(&self, id: i64) -> Result<Option<Event>> {
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(
+    pub async fn get_event(&self, id: i64) -> Result<Option<Event>> {
+        let mut stmt = self.conn.prepare(
             "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events WHERE id = ?1",
-        )?;
-        let mut rows = stmt.query_map(params![id], row_to_event)?;
-        if let Some(row) = rows.next() {
-            Ok(Some(row?))
+        ).await?;
+        let mut rows = stmt.query(libsql::params![id]).await?;
+        if let Some(row) = rows.next().await? {
+            Ok(Some(row_to_event(&row)?))
         } else {
             Ok(None)
         }
     }
 
     /// Return the `limit` most recent events, newest first.
-    pub fn get_recent_events(&self, limit: u32) -> Result<Vec<Event>> {
+    pub async fn get_recent_events(&self, limit: u32) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(
+        let mut stmt = self.conn.prepare(
             "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events ORDER BY timestamp DESC LIMIT ?1",
-        )?;
-        collect_events(stmt.query_map(params![limit], row_to_event)?)
+        ).await?;
+        let rows = stmt.query(libsql::params![limit]).await?;
+        collect_events(rows).await
     }
 
     /// Full-text-ish search with LIKE wildcard escaping, optional tool filter.
-    pub fn search_events(
+    pub async fn search_events(
         &self,
         query: &str,
-        filters: &SearchFilters,
+        filters: &SearchFilters<'_>,
         limit: u32,
     ) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
@@ -56,7 +54,7 @@ impl Db {
              WHERE 1=1"
         );
 
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut params: Vec<libsql::Value> = Vec::new();
         let mut param_idx = 1;
 
         if !terms.is_empty() {
@@ -76,20 +74,20 @@ impl Db {
                        OR tags LIKE ?{idx} ESCAPE '\\')",
                     idx = param_idx
                 ));
-                params.push(Box::new(like));
+                params.push(libsql::Value::from(like));
                 param_idx += 1;
             }
         }
 
         if let Some(t) = filters.tool {
             sql.push_str(&format!(" AND tool = ?{}", param_idx));
-            params.push(Box::new(t.to_string()));
+            params.push(libsql::Value::from(t.to_string()));
             param_idx += 1;
         }
 
         if let Some(et) = filters.event_type {
             sql.push_str(&format!(" AND type = ?{}", param_idx));
-            params.push(Box::new(et.to_string()));
+            params.push(libsql::Value::from(et.to_string()));
             param_idx += 1;
         }
 
@@ -100,7 +98,7 @@ impl Db {
                 .replace('_', "\\_");
             let like = format!("%\"{}\"%", escaped);
             sql.push_str(&format!(" AND tags LIKE ?{} ESCAPE '\\'", param_idx));
-            params.push(Box::new(like));
+            params.push(libsql::Value::from(like));
             param_idx += 1;
         }
 
@@ -109,24 +107,20 @@ impl Db {
                 " AND datetime(timestamp) >= datetime(?{})",
                 param_idx
             ));
-            params.push(Box::new(since.to_rfc3339()));
+            params.push(libsql::Value::from(since.to_rfc3339()));
             param_idx += 1;
         }
 
         sql.push_str(&format!(" ORDER BY timestamp DESC LIMIT ?{}", param_idx));
-        params.push(Box::new(limit));
+        params.push(libsql::Value::from(limit));
 
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(&sql)?;
-
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-            params.iter().map(|p| p.as_ref()).collect();
-
-        collect_events(stmt.query_map(&*param_refs, row_to_event)?)
+        let mut stmt = self.conn.prepare(&sql).await?;
+        let rows = stmt.query(params).await?;
+        collect_events(rows).await
     }
 
     /// Filtered query with optional tool, type, and date predicates.
-    pub fn get_filtered_events(
+    pub async fn get_filtered_events(
         &self,
         limit: u32,
         tool: Option<String>,
@@ -159,70 +153,66 @@ impl Db {
         }
         sql.push_str(" ORDER BY timestamp DESC LIMIT ?");
 
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(&sql)?;
-
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut params: Vec<libsql::Value> = Vec::new();
         if let Some(ref t) = tool {
-            params.push(Box::new(t.clone()));
+            params.push(libsql::Value::from(t.clone()));
         }
         if let Some(ref e) = event_type {
-            params.push(Box::new(e.clone()));
+            params.push(libsql::Value::from(e.clone()));
         }
         if let Some(ref s) = since {
-            params.push(Box::new(s.to_rfc3339()));
+            params.push(libsql::Value::from(s.to_rfc3339()));
         }
         if let Some(ref u) = until {
-            params.push(Box::new(u.to_rfc3339()));
+            params.push(libsql::Value::from(u.to_rfc3339()));
         }
-        params.push(Box::new(limit));
+        params.push(libsql::Value::from(limit));
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-            params.iter().map(|p| p.as_ref()).collect();
-        collect_events(stmt.query_map(&*param_refs, row_to_event)?)
+        let mut stmt = self.conn.prepare(&sql).await?;
+        let rows = stmt.query(params).await?;
+        collect_events(rows).await
     }
 
     /// Return events ordered chronologically (oldest first).
-    pub fn get_timeline(&self, limit: u32) -> Result<Vec<Event>> {
+    pub async fn get_timeline(&self, limit: u32) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(
+        let mut stmt = self.conn.prepare(
             "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events ORDER BY timestamp ASC LIMIT ?1",
-        )?;
-        collect_events(stmt.query_map(params![limit], row_to_event)?)
+        ).await?;
+        let rows = stmt.query(libsql::params![limit]).await?;
+        collect_events(rows).await
     }
 
     /// Get a single event by its UUID.
-    pub fn get_event_by_uuid(&self, uuid: &str) -> Result<Option<Event>> {
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(
+    pub async fn get_event_by_uuid(&self, uuid: &str) -> Result<Option<Event>> {
+        let mut stmt = self.conn.prepare(
             "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events WHERE uuid = ?1",
-        )?;
-        let mut rows = stmt.query_map(params![uuid], row_to_event)?;
-        if let Some(row) = rows.next() {
-            Ok(Some(row?))
+        ).await?;
+        let mut rows = stmt.query(libsql::params![uuid]).await?;
+        if let Some(row) = rows.next().await? {
+            Ok(Some(row_to_event(&row)?))
         } else {
             Ok(None)
         }
     }
 
     /// Get events for a specific session.
-    pub fn get_session_events(&self, session_id: &str, limit: u32) -> Result<Vec<Event>> {
+    pub async fn get_session_events(&self, session_id: &str, limit: u32) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(
+        let mut stmt = self.conn.prepare(
             "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
              FROM events WHERE session_id = ?1 ORDER BY timestamp DESC LIMIT ?2",
-        )?;
-        collect_events(stmt.query_map(params![session_id, limit], row_to_event)?)
+        ).await?;
+        let rows = stmt.query(libsql::params![session_id, limit]).await?;
+        collect_events(rows).await
     }
 
     /// Generate a structured context summary for AI agents.
-    pub fn get_context_summary(&self, query: Option<&str>, limit: u32) -> Result<String> {
+    pub async fn get_context_summary(&self, query: Option<&str>, limit: u32) -> Result<String> {
         // Backward-compatible wrapper: markdown format, unlimited budget, no dedup.
-        self.get_context_optimized(query, limit, traz_core::OutputFormat::Markdown, None, false)
+        self.get_context_optimized(query, limit, traz_core::OutputFormat::Markdown, None, false).await
     }
 
     /// Generate a token-optimized context summary for AI agents.
@@ -231,7 +221,7 @@ impl Db {
     /// - `format`: Markdown (human-readable) or Dense (AI-optimized, ~50-70% fewer tokens)
     /// - `max_tokens`: Optional token budget — output is truncated to fit
     /// - `deduplicate`: Merge near-duplicate events to save tokens
-    pub fn get_context_optimized(
+    pub async fn get_context_optimized(
         &self,
         query: Option<&str>,
         limit: u32,
@@ -239,8 +229,8 @@ impl Db {
         max_tokens: Option<usize>,
         deduplicate: bool,
     ) -> Result<String> {
-        let total = self.count_events()?;
-        let stats = self.get_stats()?;
+        let total = self.count_events().await?;
+        let stats = self.get_stats().await?;
 
         let mut budget = match max_tokens {
             Some(n) => traz_core::TokenBudget::new(n),
@@ -291,10 +281,10 @@ impl Db {
         // ── Fetch events ────────────────────────────────────────
         let is_rag = query.is_some();
         let events = if let Some(q) = query {
-            let search_results = self.hybrid_search(q, &SearchFilters::default(), limit)?;
+            let search_results = self.hybrid_search(q, &SearchFilters::default(), limit).await?;
             search_results.into_iter().map(|(e, _)| e).collect()
         } else {
-            self.get_recent_events(limit)?
+            self.get_recent_events(limit).await?
         };
 
         // ── Build context with optimizations ────────────────────
@@ -331,10 +321,11 @@ impl Db {
     }
 
     /// Optimized semantic search using one-pass join scanning and f32 cosine similarities.
-    pub fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<(Event, f32)>> {
+    pub async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<(Event, f32)>> {
         // TODO v0.2: use sqlite-vec extension for ANN search
 
-        let query_vec = match traz_embeddings::embed_text(query) {
+        let text = query.to_string();
+        let query_vec = match tokio::task::spawn_blocking(move || traz_embeddings::embed_text(&text)).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Task failed: {}", e))) {
             Ok(vec) => vec,
             Err(e) => {
                 if !traz_embeddings::is_embedding_model_downloaded() {
@@ -352,11 +343,10 @@ impl Db {
 
         let mut top_matches = Vec::new();
         {
-            let conn = self.lock_conn();
-            let mut stmt = conn.prepare("SELECT event_id, vector FROM event_embeddings")?;
-            let mut rows = stmt.query([])?;
+            let mut stmt = self.conn.prepare("SELECT event_id, vector FROM event_embeddings").await?;
+            let mut rows = stmt.query(()).await?;
 
-            while let Some(row) = rows.next()? {
+            while let Some(row) = rows.next().await? {
                 let event_id: i64 = row.get(0)?;
                 let vector_bytes: Vec<u8> = row.get(1)?;
                 let event_vec: Vec<f32> = vector_bytes
@@ -387,13 +377,12 @@ impl Db {
             placeholders
         );
 
-        let conn = self.lock_conn();
-        let mut stmt = conn.prepare(&sql)?;
-        let mut rows = stmt.query([])?;
+        let mut stmt = self.conn.prepare(&sql).await?;
+        let mut rows = stmt.query(()).await?;
         let mut events_map = std::collections::HashMap::new();
 
-        while let Some(row) = rows.next()? {
-            let event = row_to_event(row)?;
+        while let Some(row) = rows.next().await? {
+            let event = row_to_event(&row)?;
             events_map.insert(event.id, event);
         }
 
@@ -408,17 +397,17 @@ impl Db {
     }
 
     /// Combines keyword search and semantic search using Reciprocal Rank Fusion (RRF).
-    pub fn hybrid_search(
+    pub async fn hybrid_search(
         &self,
         query: &str,
-        filters: &SearchFilters,
+        filters: &SearchFilters<'_>,
         limit: u32,
     ) -> Result<Vec<(Event, f32)>> {
         let mut results = std::collections::HashMap::new();
         let rrf_k = 60.0;
 
         // 1. Keyword search (Sparse)
-        if let Ok(keyword_events) = self.search_events(query, filters, limit) {
+        if let Ok(keyword_events) = self.search_events(query, filters, limit).await {
             for (rank, event) in (1..).zip(keyword_events) {
                 let rrf_score = 1.0 / (rrf_k + rank as f32);
                 results.insert(event.id, (event, rrf_score));
@@ -429,7 +418,7 @@ impl Db {
         if self.config.embeddings_enabled {
             // Fetch more candidates since we might filter some out
             let fetch_limit = (limit * 3).max(100);
-            if let Ok(sem_events) = self.semantic_search(query, fetch_limit as usize) {
+            if let Ok(sem_events) = self.semantic_search(query, fetch_limit as usize).await {
                 let mut rank = 1;
                 for (event, similarity) in sem_events {
                     if similarity < 0.3 {
