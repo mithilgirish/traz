@@ -85,6 +85,7 @@ impl Db {
             let mut stmt = tx.prepare("SELECT 1 FROM events WHERE id = ?1").await?;
             let mut rows = stmt.query(libsql::params![pid]).await?;
             if rows.next().await?.is_none() {
+                tx.rollback().await?;
                 anyhow::bail!("Provided parent_event_id {} does not exist", pid);
             }
         } else {
@@ -329,6 +330,7 @@ impl Db {
         };
 
         if count == 0 {
+            tx.rollback().await?;
             anyhow::bail!(
                 "No events found for agent_id '{}' on the requested branch",
                 agent_id

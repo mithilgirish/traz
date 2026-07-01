@@ -271,19 +271,18 @@ impl Db {
 
         // Include main/master as fallbacks only when they actually have events,
         // preventing phantom branch entries in queries on repos that don't use them.
-        for default_branch in ["main", "master"] {
-            if branches.contains(&default_branch.to_string()) {
-                continue;
-            }
-            let mut check = self
-                .conn
-                .query(
-                    "SELECT 1 FROM events WHERE branch_name = ?1 LIMIT 1",
-                    libsql::params![default_branch],
-                )
-                .await?;
-            if check.next().await?.is_some() {
-                branches.push(default_branch.to_string());
+        let mut check = self
+            .conn
+            .query(
+                "SELECT DISTINCT branch_name FROM events WHERE branch_name IN ('main', 'master')",
+                (),
+            )
+            .await?;
+
+        while let Some(row) = check.next().await? {
+            let b: String = row.get(0)?;
+            if !branches.contains(&b) {
+                branches.push(b);
             }
         }
 
@@ -496,6 +495,14 @@ impl Db {
             while let Some(row) = rows.next().await? {
                 let event_id: i64 = row.get(0)?;
                 let vector_bytes: Vec<u8> = row.get(1)?;
+                if !vector_bytes.len().is_multiple_of(4) {
+                    tracing::warn!(
+                        "Malformed vector blob for event_id {}: length {} is not a multiple of 4 bytes",
+                        event_id,
+                        vector_bytes.len()
+                    );
+                }
+
                 let event_vec: Vec<f32> = vector_bytes
                     .chunks(4)
                     .filter(|c| c.len() == 4)
