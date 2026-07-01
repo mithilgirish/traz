@@ -10,13 +10,14 @@ pub struct SearchFilters<'a> {
     pub event_type: Option<&'a str>,
     pub tag: Option<&'a str>,
     pub since: Option<DateTime<Utc>>,
+    pub branch_names: Option<Vec<&'a str>>,
 }
 
 impl Db {
     /// Get a single event by its ID.
     pub async fn get_event(&self, id: i64) -> Result<Option<Event>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at
              FROM events WHERE id = ?1",
         ).await?;
         let mut rows = stmt.query(libsql::params![id]).await?;
@@ -31,10 +32,27 @@ impl Db {
     pub async fn get_recent_events(&self, limit: u32) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
         let mut stmt = self.conn.prepare(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at
              FROM events ORDER BY timestamp DESC LIMIT ?1",
         ).await?;
         let rows = stmt.query(libsql::params![limit]).await?;
+        collect_events(rows).await
+    }
+
+    /// Return the `limit` most recent events for a specific branch, newest first.
+    pub async fn get_recent_events_for_branch(
+        &self,
+        limit: u32,
+        branch_name: &str,
+    ) -> Result<Vec<Event>> {
+        let limit = limit.min(MAX_RESULTS);
+        let mut stmt = self.conn.prepare(
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at
+             FROM events 
+             WHERE branch_name = ?1
+             ORDER BY timestamp DESC LIMIT ?2",
+        ).await?;
+        let rows = stmt.query(libsql::params![branch_name, limit]).await?;
         collect_events(rows).await
     }
 
@@ -49,7 +67,7 @@ impl Db {
         let terms: Vec<&str> = query.split_whitespace().collect();
 
         let mut sql = String::from(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at
              FROM events
              WHERE 1=1"
         );
@@ -102,6 +120,16 @@ impl Db {
             param_idx += 1;
         }
 
+        if let Some(branches) = filters.branch_names.as_ref().filter(|b| !b.is_empty()) {
+            let placeholders: Vec<String> =
+                branches.iter().map(|_| format!("?{}", param_idx)).collect();
+            sql.push_str(&format!(" AND branch_name IN ({})", placeholders.join(",")));
+            for branch in branches {
+                params.push(libsql::Value::from(branch.to_string()));
+                param_idx += 1;
+            }
+        }
+
         if let Some(since) = filters.since {
             sql.push_str(&format!(
                 " AND datetime(timestamp) >= datetime(?{})",
@@ -130,7 +158,7 @@ impl Db {
     ) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
         let mut sql = String::from(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at FROM events",
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at FROM events",
         );
         let mut conditions: Vec<String> = Vec::new();
 
@@ -177,7 +205,7 @@ impl Db {
     pub async fn get_timeline(&self, limit: u32) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
         let mut stmt = self.conn.prepare(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at
              FROM events ORDER BY timestamp ASC LIMIT ?1",
         ).await?;
         let rows = stmt.query(libsql::params![limit]).await?;
@@ -187,7 +215,7 @@ impl Db {
     /// Get a single event by its UUID.
     pub async fn get_event_by_uuid(&self, uuid: &str) -> Result<Option<Event>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at
              FROM events WHERE uuid = ?1",
         ).await?;
         let mut rows = stmt.query(libsql::params![uuid]).await?;
@@ -202,18 +230,60 @@ impl Db {
     pub async fn get_session_events(&self, session_id: &str, limit: u32) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
         let mut stmt = self.conn.prepare(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at
              FROM events WHERE session_id = ?1 ORDER BY timestamp DESC LIMIT ?2",
         ).await?;
         let rows = stmt.query(libsql::params![session_id, limit]).await?;
         collect_events(rows).await
     }
 
+    /// Retrieve all unique branch names that are ancestors of the latest event on the given branch,
+    /// by recursively traversing the `parent_event_id` DAG.
+    pub async fn get_ancestor_branches(&self, branch_name: &str) -> Result<Vec<String>> {
+        let sql = r#"
+            WITH RECURSIVE
+              ancestor_events(id, parent_id, branch_name) AS (
+                SELECT id, parent_event_id, branch_name FROM events 
+                WHERE branch_name = ?1 ORDER BY timestamp DESC LIMIT 1
+                UNION ALL
+                SELECT e.id, e.parent_event_id, e.branch_name
+                FROM events e
+                JOIN ancestor_events a ON e.id = a.parent_id
+              )
+            SELECT DISTINCT branch_name FROM ancestor_events WHERE branch_name IS NOT NULL;
+        "#;
+
+        let mut stmt = self.conn.prepare(sql).await?;
+        let mut rows = stmt.query(libsql::params![branch_name]).await?;
+        let mut branches = Vec::new();
+
+        while let Some(row) = rows.next().await? {
+            let b: String = row.get(0)?;
+            branches.push(b);
+        }
+
+        // Always include main/master as global fallbacks just in case the DAG is disjointed
+        for default_branch in ["main", "master"] {
+            if !branches.contains(&default_branch.to_string()) {
+                branches.push(default_branch.to_string());
+            }
+        }
+
+        Ok(branches)
+    }
+
     /// Generate a structured context summary for AI agents.
     pub async fn get_context_summary(&self, query: Option<&str>, limit: u32) -> Result<String> {
         // Backward-compatible wrapper: markdown format, unlimited budget, no dedup.
-        self.get_context_optimized(query, limit, traz_core::OutputFormat::Markdown, None, false)
-            .await
+        self.get_context_optimized(
+            query,
+            limit,
+            traz_core::OutputFormat::Markdown,
+            None,
+            false,
+            None,
+        )
+        .await
     }
 
     /// Generate a token-optimized context summary for AI agents.
@@ -229,6 +299,7 @@ impl Db {
         format: traz_core::OutputFormat,
         max_tokens: Option<usize>,
         deduplicate: bool,
+        branch_names: Option<Vec<&str>>,
     ) -> Result<String> {
         let total = self.count_events().await?;
         let stats = self.get_stats().await?;
@@ -282,12 +353,23 @@ impl Db {
         // ── Fetch events ────────────────────────────────────────
         let is_rag = query.is_some();
         let events = if let Some(q) = query {
-            let search_results = self
-                .hybrid_search(q, &SearchFilters::default(), limit)
-                .await?;
+            let filters = SearchFilters {
+                branch_names: branch_names.clone(),
+                ..Default::default()
+            };
+            let search_results = self.hybrid_search(q, &filters, limit).await?;
             search_results.into_iter().map(|(e, _)| e).collect()
         } else {
-            self.get_recent_events(limit).await?
+            if let Some(ref branches) = branch_names {
+                if branches.len() == 1 {
+                    self.get_recent_events_for_branch(limit, branches[0])
+                        .await?
+                } else {
+                    self.get_recent_events(limit).await?
+                }
+            } else {
+                self.get_recent_events(limit).await?
+            }
         };
 
         // ── Build context with optimizations ────────────────────
@@ -324,7 +406,12 @@ impl Db {
     }
 
     /// Optimized semantic search using one-pass join scanning and f32 cosine similarities.
-    pub async fn semantic_search(&self, query: &str, limit: usize) -> Result<Vec<(Event, f32)>> {
+    pub async fn semantic_search(
+        &self,
+        query: &str,
+        limit: usize,
+        branch_names: Option<&[&str]>,
+    ) -> Result<Vec<(Event, f32)>> {
         // TODO v0.2: use sqlite-vec extension for ANN search
 
         let text = query.to_string();
@@ -351,11 +438,29 @@ impl Db {
 
         let mut top_matches = Vec::new();
         {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT event_id, vector FROM event_embeddings")
-                .await?;
-            let mut rows = stmt.query(()).await?;
+            let (sql, params) = if let Some(branches) = branch_names {
+                let placeholders: Vec<String> = branches.iter().map(|_| "?".to_string()).collect();
+                let sql = format!(
+                    "SELECT ee.event_id, ee.vector FROM event_embeddings ee 
+                     JOIN events e ON e.id = ee.event_id 
+                     WHERE e.branch_name IN ({}) OR e.branch_name IS NULL",
+                    placeholders.join(",")
+                );
+
+                let mut p = Vec::new();
+                for b in branches {
+                    p.push(libsql::Value::from(b.to_string()));
+                }
+                (sql, p)
+            } else {
+                (
+                    "SELECT event_id, vector FROM event_embeddings".to_string(),
+                    Vec::new(),
+                )
+            };
+
+            let mut stmt = self.conn.prepare(&sql).await?;
+            let mut rows = stmt.query(libsql::params_from_iter(params)).await?;
 
             while let Some(row) = rows.next().await? {
                 let event_id: i64 = row.get(0)?;
@@ -383,7 +488,7 @@ impl Db {
         let ids: Vec<String> = top_matches.iter().map(|(id, _)| id.to_string()).collect();
         let placeholders = ids.join(",");
         let sql = format!(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, timestamp, created_at 
+            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at 
              FROM events WHERE id IN ({})",
             placeholders
         );
@@ -428,7 +533,11 @@ impl Db {
         if self.config.embeddings_enabled {
             // Fetch more candidates since we might filter some out
             let fetch_limit = (limit * 3).max(100);
-            if let Ok(sem_events) = self.semantic_search(query, fetch_limit as usize).await {
+            let branch_filter = filters.branch_names.as_deref();
+            if let Ok(sem_events) = self
+                .semantic_search(query, fetch_limit as usize, branch_filter)
+                .await
+            {
                 let mut rank = 1;
                 for (event, similarity) in sem_events {
                     if similarity < 0.3 {
@@ -458,6 +567,12 @@ impl Db {
                         && event.timestamp < since
                     {
                         continue;
+                    }
+                    if let Some(ref branches) = filters.branch_names {
+                        let event_branch = event.branch_name.as_deref().unwrap_or("");
+                        if !branches.contains(&event_branch) {
+                            continue;
+                        }
                     }
 
                     let rrf_score = 1.0 / (rrf_k + rank as f32);

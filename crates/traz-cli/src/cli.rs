@@ -206,6 +206,27 @@ pub enum Commands {
         id: i64,
     },
 
+    /// Mark the current state as a memory checkpoint
+    Checkpoint {
+        /// Optional message for the checkpoint
+        #[arg(short, long)]
+        message: Option<String>,
+    },
+
+    /// Roll back memory to the last checkpoint on the current branch
+    Rollback,
+
+    /// Rollup subagent memory into a single summary event and delete the subagent's episodic memory
+    Rollup {
+        /// The agent ID to rollup
+        #[arg(short, long)]
+        agent_id: String,
+
+        /// The summary text for the rollup event
+        #[arg(short, long)]
+        summary: String,
+    },
+
     /// Show full details of a specific event
     Show {
         /// Event ID to display

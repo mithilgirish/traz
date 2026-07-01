@@ -103,6 +103,10 @@ impl Db {
                 tags        TEXT,
                 session_id  TEXT,
                 diff        TEXT,
+                branch_name TEXT,
+                parent_event_id INTEGER,
+                is_checkpoint BOOLEAN DEFAULT FALSE,
+                agent_id    TEXT,
                 timestamp   TEXT    NOT NULL,
                 created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );",
@@ -115,6 +119,10 @@ impl Db {
         self.add_column_if_missing("tags").await?;
         self.add_column_if_missing("session_id").await?;
         self.add_column_if_missing("diff").await?;
+        self.add_column_if_missing("branch_name").await?;
+        self.add_column_if_missing("parent_event_id").await?;
+        self.add_column_if_missing("is_checkpoint").await?;
+        self.add_column_if_missing("agent_id").await?;
 
         // Step 3: Create indexes (safe now that all columns exist)
         self.conn

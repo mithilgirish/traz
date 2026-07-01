@@ -234,6 +234,10 @@ pub async fn handle_cuby_command(subcommand: &str, args: &[String], db: Arc<Db>)
                 tags: Some(vec!["fed".to_string(), "cuby".to_string()]),
                 session_id: None,
                 diff: None,
+                branch_name: None,
+                parent_event_id: None,
+                is_checkpoint: Some(false),
+                agent_id: None,
                 timestamp: chrono::Utc::now(),
                 created_at: Some(chrono::Utc::now()),
             };

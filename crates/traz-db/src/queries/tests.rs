@@ -440,7 +440,10 @@ mod tests {
         let id2 = db.insert_event(&e2).await.unwrap();
 
         // Search for something related to auth
-        let results = db.semantic_search("login database", 10).await.unwrap();
+        let results = db
+            .semantic_search("login database", 10, None)
+            .await
+            .unwrap();
 
         // Assert we got results back
         assert!(!results.is_empty());
@@ -449,7 +452,7 @@ mod tests {
 
         // Search for something related to styling
         let results_css = db
-            .semantic_search("css flexbox layout alignment", 10)
+            .semantic_search("css flexbox layout alignment", 10, None)
             .await
             .unwrap();
         assert!(!results_css.is_empty());
@@ -641,7 +644,14 @@ mod tests {
 
         // 1. Markdown Format - Unlimited budget
         let markdown_ctx = db
-            .get_context_optimized(None, 10, traz_core::OutputFormat::Markdown, None, false)
+            .get_context_optimized(
+                None,
+                10,
+                traz_core::OutputFormat::Markdown,
+                None,
+                false,
+                None,
+            )
             .await
             .unwrap();
         assert!(markdown_ctx.contains("# traz — Engineering Context Summary"));
@@ -651,7 +661,7 @@ mod tests {
 
         // 2. Dense Format - Unlimited budget
         let dense_ctx = db
-            .get_context_optimized(None, 10, traz_core::OutputFormat::Dense, None, false)
+            .get_context_optimized(None, 10, traz_core::OutputFormat::Dense, None, false, None)
             .await
             .unwrap();
         assert!(dense_ctx.contains("traz|events:3"));
@@ -660,7 +670,14 @@ mod tests {
         // 3. Budget Truncation (strict low token budget)
         // With a budget of 20 tokens, only the header should fit, truncating the rest
         let truncated_ctx = db
-            .get_context_optimized(None, 10, traz_core::OutputFormat::Markdown, Some(20), false)
+            .get_context_optimized(
+                None,
+                10,
+                traz_core::OutputFormat::Markdown,
+                Some(20),
+                false,
+                None,
+            )
             .await
             .unwrap();
         assert!(traz_core::estimate_tokens(&truncated_ctx) <= 35);

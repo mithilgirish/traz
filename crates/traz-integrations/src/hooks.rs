@@ -76,7 +76,15 @@ pub async fn handle_hook(
     });
 
     let data_dir = db.path().parent().unwrap_or_else(|| Path::new("."));
-    let active_session_path = data_dir.join("active_session.json");
+
+    // Phase 2: Worktree Session Isolation
+    let branch_name = crate::git::get_current_branch().unwrap_or_else(|_| "default".to_string());
+    let safe_branch_name = branch_name.replace(|c: char| !c.is_alphanumeric(), "_");
+
+    let sessions_dir = data_dir.join("sessions");
+    let _ = fs::create_dir_all(&sessions_dir);
+    let active_session_path =
+        sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
 
     // Shared Memory Layer: Track the most recently active session
     let mut other_session_context = String::new();
@@ -220,7 +228,8 @@ pub async fn handle_hook(
 
                 let event =
                     Event::new(platform.to_string(), event_type, title, summary, None, None)
-                        .with_session(input.session_id.clone().unwrap_or_default());
+                        .with_session(input.session_id.clone().unwrap_or_default())
+                        .with_branch(crate::git::get_current_branch().ok());
                 let _ = db.insert_event(&event).await;
             }
 
@@ -246,7 +255,8 @@ pub async fn handle_hook(
                     Some(vec![file_path.clone()]),
                     None,
                 )
-                .with_session(input.session_id.clone().unwrap_or_default());
+                .with_session(input.session_id.clone().unwrap_or_default())
+                .with_branch(crate::git::get_current_branch().ok());
                 let _ = db.insert_event(&event).await;
             }
 
@@ -316,8 +326,14 @@ mod tests {
     async fn test_handle_hook_session_init_with_shared_memory() {
         let (db, test_dir) = setup_test_env("session_init_shared").await;
 
-        // Pre-populate active_session.json with another tool active recently
-        let active_session_path = test_dir.join("active_session.json");
+        // Pre-populate active_session_default.json with another tool active recently
+        let sessions_dir = test_dir.join("sessions");
+        let _ = std::fs::create_dir_all(&sessions_dir);
+        let branch_name =
+            crate::git::get_current_branch().unwrap_or_else(|_| "default".to_string());
+        let safe_branch_name = branch_name.replace(|c: char| !c.is_alphanumeric(), "_");
+        let active_session_path =
+            sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -370,8 +386,14 @@ mod tests {
     async fn test_handle_hook_session_init_expired_shared_memory() {
         let (db, test_dir) = setup_test_env("session_init_expired").await;
 
-        // Pre-populate active_session.json with another tool active long ago
-        let active_session_path = test_dir.join("active_session.json");
+        // Pre-populate active_session_default.json with another tool active long ago
+        let sessions_dir = test_dir.join("sessions");
+        let _ = std::fs::create_dir_all(&sessions_dir);
+        let branch_name =
+            crate::git::get_current_branch().unwrap_or_else(|_| "default".to_string());
+        let safe_branch_name = branch_name.replace(|c: char| !c.is_alphanumeric(), "_");
+        let active_session_path =
+            sessions_dir.join(format!("active_session_{}.json", safe_branch_name));
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()

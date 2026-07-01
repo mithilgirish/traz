@@ -54,6 +54,21 @@ pub struct Event {
     /// When the event occurred.
     pub timestamp: DateTime<Utc>,
 
+    /// The git branch or worktree where this event occurred.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_name: Option<String>,
+
+    /// The parent event ID (for DAG memory model).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_event_id: Option<i64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_checkpoint: Option<bool>,
+
+    /// The agent or conversation ID that owns this event (for multi-agent scoping).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+
     /// When the event was stored in the database.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
@@ -81,9 +96,37 @@ impl Event {
             tags: None,
             session_id: None,
             diff: None,
+            branch_name: None,
+            parent_event_id: None,
+            is_checkpoint: Some(false),
+            agent_id: None,
             timestamp: timestamp.unwrap_or_else(Utc::now),
             created_at: None,
         }
+    }
+
+    /// Builder-style setter for branch_name.
+    pub fn with_branch(mut self, branch_name: Option<String>) -> Self {
+        self.branch_name = branch_name;
+        self
+    }
+
+    /// Builder-style setter for parent_event_id.
+    pub fn with_parent(mut self, parent_event_id: Option<i64>) -> Self {
+        self.parent_event_id = parent_event_id;
+        self
+    }
+
+    /// Builder-style setter for is_checkpoint.
+    pub fn with_checkpoint(mut self, is_checkpoint: bool) -> Self {
+        self.is_checkpoint = Some(is_checkpoint);
+        self
+    }
+
+    /// Builder-style setter for agent_id.
+    pub fn with_agent(mut self, agent_id: String) -> Self {
+        self.agent_id = Some(agent_id);
+        self
     }
 
     /// Builder-style setter for metadata.

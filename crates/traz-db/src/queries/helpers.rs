@@ -45,13 +45,27 @@ pub(crate) fn row_to_event(row: &libsql::Row) -> Result<Event> {
 
     let session_id: Option<String> = row.get(9)?;
     let diff: Option<String> = row.get(10)?;
+    let branch_name: Option<String> = row.get(11)?;
+    let parent_event_id = row.get::<libsql::Value>(12).ok().and_then(|v| match v {
+        libsql::Value::Integer(i) => Some(i),
+        libsql::Value::Text(t) => t.parse::<i64>().ok(),
+        _ => None,
+    });
 
-    let timestamp_str: String = row.get(11)?;
+    let is_checkpoint = row.get::<libsql::Value>(13).ok().and_then(|v| match v {
+        libsql::Value::Integer(i) => Some(i != 0),
+        libsql::Value::Text(t) => Some(t == "1" || t.to_lowercase() == "true"),
+        _ => None,
+    });
+
+    let agent_id: Option<String> = row.get(14)?;
+
+    let timestamp_str: String = row.get(15)?;
     let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .unwrap_or_else(|_| chrono::Utc::now());
 
-    let created_at_str: Option<String> = row.get(12)?;
+    let created_at_str: Option<String> = row.get(16)?;
     let created_at = created_at_str.and_then(|s| {
         chrono::DateTime::parse_from_rfc3339(&s)
             .map(|dt| dt.with_timezone(&chrono::Utc))
@@ -70,6 +84,10 @@ pub(crate) fn row_to_event(row: &libsql::Row) -> Result<Event> {
         tags,
         session_id,
         diff,
+        branch_name,
+        parent_event_id,
+        is_checkpoint,
+        agent_id,
         timestamp,
         created_at,
     })

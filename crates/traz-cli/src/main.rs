@@ -342,6 +342,7 @@ async fn run_command(
                 event_type: event_type.as_deref(),
                 tag: tag.as_deref(),
                 since: since_dt,
+                branch_names: None,
             };
 
             let results = db.hybrid_search(&query, &filters, limit).await?;
@@ -428,7 +429,9 @@ async fn run_command(
                     .collect::<Vec<String>>()
             });
 
-            let mut event = Event::new(tool, event_type, title, summary, files_vec, None);
+            let current_branch = traz_integrations::git::get_current_branch().ok();
+            let mut event = Event::new(tool, event_type, title, summary, files_vec, None)
+                .with_branch(current_branch);
             if let Some(t) = tags_vec {
                 event = event.with_tags(t);
             }
@@ -459,6 +462,7 @@ async fn run_command(
                 anyhow::bail!("Event title/message cannot be empty.");
             }
 
+            let current_branch = traz_integrations::git::get_current_branch().ok();
             let mut event = Event::new(
                 tool.clone(),
                 event_type.clone(),
@@ -466,7 +470,8 @@ async fn run_command(
                 None,
                 None,
                 None,
-            );
+            )
+            .with_branch(current_branch);
             if diff {
                 match traz_integrations::git::get_uncommitted_diff() {
                     Ok(Some(d)) => {
@@ -541,6 +546,54 @@ async fn run_command(
             }
         }
 
+        Commands::Checkpoint { message } => {
+            let branch =
+                traz_integrations::git::get_current_branch().unwrap_or_else(|_| "main".to_string());
+            let id = db.mark_checkpoint(&branch, message).await?;
+            print_success(&format!(
+                "Memory checkpoint created on branch '{}' (Event #{})",
+                branch, id
+            ));
+        }
+
+        Commands::Rollback => {
+            let branch =
+                traz_integrations::git::get_current_branch().unwrap_or_else(|_| "main".to_string());
+            match db.rollback_to_checkpoint(&branch).await {
+                Ok(deleted) => {
+                    if deleted > 0 {
+                        print_success(&format!(
+                            "Rolled back memory on branch '{}'. Deleted {} subsequent events.",
+                            branch, deleted
+                        ));
+                    } else {
+                        print_info(&format!(
+                            "Already at the latest checkpoint on branch '{}'.",
+                            branch
+                        ));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to rollback: {}", e);
+                }
+            }
+        }
+
+        Commands::Rollup { agent_id, summary } => {
+            let branch = traz_integrations::git::get_current_branch().ok();
+            match db.rollup_agent_memory(&agent_id, summary, branch).await {
+                Ok(id) => {
+                    print_success(&format!(
+                        "Rolled up subagent '{}' memory into new summary event #{}.",
+                        agent_id, id
+                    ));
+                }
+                Err(e) => {
+                    eprintln!("Failed to rollup subagent memory: {}", e);
+                }
+            }
+        }
+
         Commands::Show { id, json } => match db.get_event(id).await? {
             Some(event) => {
                 if json {
@@ -598,7 +651,7 @@ async fn run_command(
                 traz_core::OutputFormat::Markdown
             };
             let ctx = db
-                .get_context_optimized(query.as_deref(), limit, format, budget, deduplicate)
+                .get_context_optimized(query.as_deref(), limit, format, budget, deduplicate, None)
                 .await?;
             if json {
                 let data = serde_json::json!({

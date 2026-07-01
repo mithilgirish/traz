@@ -77,6 +77,7 @@ pub fn capture_latest_commit() -> Result<Event> {
         files_opt,
         None,
     )
+    .with_branch(Some(branch.clone()))
     .with_metadata(serde_json::json!({
         "commit_hash": hash,
         "branch": branch,
