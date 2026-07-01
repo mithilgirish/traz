@@ -103,18 +103,40 @@ async fn health() -> impl IntoResponse {
 
 async fn stats(State(state): State<AppState>) -> impl IntoResponse {
     let db_clone = state.db.clone();
-    let count = db_clone.count_events().await.unwrap_or(0);
-    let by_tool = db_clone.get_stats().await.unwrap_or_default();
+    let count = match db_clone.count_events().await {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+    let by_tool = match db_clone.get_stats().await {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
 
     let tools: serde_json::Value = by_tool
         .into_iter()
         .map(|(tool, cnt)| serde_json::json!({ "tool": tool, "count": cnt }))
         .collect();
 
-    Json(serde_json::json!({
-        "total_events": count,
-        "by_tool": tools,
-    }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "total_events": count,
+            "by_tool": tools,
+        })),
+    )
+        .into_response()
 }
 
 async fn create_event(
@@ -215,6 +237,7 @@ async fn search_events(
     let filters = traz_db::SearchFilters {
         tool: tool_filter.as_deref(),
         event_type: event_type_filter.as_deref(),
+        since: filter.since,
         ..Default::default()
     };
     let result = db_clone

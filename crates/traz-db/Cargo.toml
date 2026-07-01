@@ -11,6 +11,7 @@ traz-core = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 libsql = { workspace = true }
+libsql-sys = { version = "0.8.0", features = ["rusqlite"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 dirs = { workspace = true }
@@ -19,3 +20,4 @@ tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+uuid = { workspace = true, features = ["v4"] }

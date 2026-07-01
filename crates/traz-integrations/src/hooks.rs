@@ -160,20 +160,29 @@ pub async fn handle_hook(
 
         "context" => {
             let limit = 10;
-            let context_summary = db
-                .get_context_summary(None, limit)
-                .await
-                .unwrap_or_default();
-            HookOutput {
-                hookSpecificOutput: Some(HookSpecificOutput {
-                    hookEventName: "SessionStart".to_string(),
-                    additionalContext: format!("{}{}", other_session_context, context_summary),
-                }),
-                systemMessage: Some(format!(
-                    "traz: Context successfully synchronized from database: {}",
-                    db.path().display()
-                )),
-                should_continue: true,
+            match db.get_context_summary(None, limit).await {
+                Ok(context_summary) => HookOutput {
+                    hookSpecificOutput: Some(HookSpecificOutput {
+                        hookEventName: "SessionStart".to_string(),
+                        additionalContext: format!("{}{}", other_session_context, context_summary),
+                    }),
+                    systemMessage: Some(format!(
+                        "traz: Context successfully synchronized from database: {}",
+                        db.path().display()
+                    )),
+                    should_continue: true,
+                },
+                Err(e) => HookOutput {
+                    hookSpecificOutput: Some(HookSpecificOutput {
+                        hookEventName: "SessionStart".to_string(),
+                        additionalContext: other_session_context,
+                    }),
+                    systemMessage: Some(format!(
+                        "traz: Warning: Failed to fetch context summary from database: {}",
+                        e
+                    )),
+                    should_continue: true,
+                },
             }
         }
 

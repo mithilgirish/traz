@@ -25,7 +25,7 @@ pub(crate) async fn collect_events(mut rows: libsql::Rows) -> Result<Vec<Event>>
     Ok(events)
 }
 
-pub(crate) fn row_to_event(row: &libsql::Row) -> Result<Event, libsql::Error> {
+pub(crate) fn row_to_event(row: &libsql::Row) -> Result<Event> {
     let id: Option<i64> = row.get(0)?;
     let uuid: String = row.get::<Option<String>>(1)?.unwrap_or_default();
     let tool: String = row.get(2)?;
@@ -34,14 +34,14 @@ pub(crate) fn row_to_event(row: &libsql::Row) -> Result<Event, libsql::Error> {
     let summary: Option<String> = row.get(5)?;
 
     let files_str: Option<String> = row.get(6)?;
-    let files: Option<Vec<String>> = files_str.and_then(|s| serde_json::from_str(&s).ok());
+    let files: Option<Vec<String>> = files_str.map(|s| serde_json::from_str(&s)).transpose()?;
 
     let metadata_str: Option<String> = row.get(7)?;
     let metadata: Option<serde_json::Value> =
-        metadata_str.and_then(|s| serde_json::from_str(&s).ok());
+        metadata_str.map(|s| serde_json::from_str(&s)).transpose()?;
 
     let tags_str: Option<String> = row.get(8)?;
-    let tags: Option<Vec<String>> = tags_str.and_then(|s| serde_json::from_str(&s).ok());
+    let tags: Option<Vec<String>> = tags_str.map(|s| serde_json::from_str(&s)).transpose()?;
 
     let session_id: Option<String> = row.get(9)?;
     let diff: Option<String> = row.get(10)?;

@@ -418,11 +418,10 @@ impl Db {
         let rrf_k = 60.0;
 
         // 1. Keyword search (Sparse)
-        if let Ok(keyword_events) = self.search_events(query, filters, limit).await {
-            for (rank, event) in (1..).zip(keyword_events) {
-                let rrf_score = 1.0 / (rrf_k + rank as f32);
-                results.insert(event.id, (event, rrf_score));
-            }
+        let keyword_events = self.search_events(query, filters, limit).await?;
+        for (rank, event) in (1..).zip(keyword_events) {
+            let rrf_score = 1.0 / (rrf_k + rank as f32);
+            results.insert(event.id, (event, rrf_score));
         }
 
         // 2. Semantic search (Dense)

@@ -175,10 +175,7 @@ mod tests {
     use std::time::SystemTime;
 
     fn get_temp_db_path() -> (PathBuf, PathBuf) {
-        let ts = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
+        let ts = uuid::Uuid::new_v4().to_string();
         let temp_dir = std::env::temp_dir().join(format!("traz_database_test_{}", ts));
         fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join("traz.db");

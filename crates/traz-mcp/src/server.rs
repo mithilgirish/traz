@@ -488,8 +488,14 @@ async fn handle_tool_call(db: &Db, req: &Value, experimental: bool) -> Value {
             }
         }
         "traz_stats" => {
-            let count = db.count_events().await.unwrap_or(0);
-            let stats = db.get_stats().await.unwrap_or_default();
+            let count = match db.count_events().await {
+                Ok(c) => c,
+                Err(e) => return tool_err(&format!("Failed to count events: {}", e)),
+            };
+            let stats = match db.get_stats().await {
+                Ok(s) => s,
+                Err(e) => return tool_err(&format!("Failed to get stats: {}", e)),
+            };
             let mut summary = format!("Total Events: {}\n\nBy Tool:\n", count);
             for (tool, c) in stats {
                 summary.push_str(&format!("- {}: {}\n", tool, c));

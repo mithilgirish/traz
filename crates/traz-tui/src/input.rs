@@ -44,6 +44,7 @@ pub async fn handle_input(app: &mut App, key: KeyEvent) -> anyhow::Result<bool> 
                 if !app.events.is_empty()
                     && let Some(id) = app.events[app.selected].id
                 {
+                    app.rewind_count = app.db.count_events_after(id).await.unwrap_or(0);
                     app.previous_mode = Some(AppMode::List);
                     app.mode = AppMode::Confirm(ConfirmAction::Rewind(id));
                 }
@@ -80,6 +81,7 @@ pub async fn handle_input(app: &mut App, key: KeyEvent) -> anyhow::Result<bool> 
                     app.mode = AppMode::Confirm(ConfirmAction::Undo(current_id));
                 }
                 KeyCode::Char('r') => {
+                    app.rewind_count = app.db.count_events_after(current_id).await.unwrap_or(0);
                     app.previous_mode = Some(AppMode::Detail(current_id));
                     app.mode = AppMode::Confirm(ConfirmAction::Rewind(current_id));
                 }
