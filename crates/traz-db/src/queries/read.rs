@@ -102,47 +102,7 @@ impl Db {
             }
         }
 
-        if let Some(t) = filters.tool {
-            sql.push_str(&format!(" AND tool = ?{}", param_idx));
-            params.push(libsql::Value::from(t.to_string()));
-            param_idx += 1;
-        }
-
-        if let Some(et) = filters.event_type {
-            sql.push_str(&format!(" AND type = ?{}", param_idx));
-            params.push(libsql::Value::from(et.to_string()));
-            param_idx += 1;
-        }
-
-        if let Some(tag) = filters.tag {
-            let escaped = tag
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_");
-            let like = format!("%\"{}\"%", escaped);
-            sql.push_str(&format!(" AND tags LIKE ?{} ESCAPE '\\'", param_idx));
-            params.push(libsql::Value::from(like));
-            param_idx += 1;
-        }
-
-        if let Some(branches) = filters.branch_names.as_ref().filter(|b| !b.is_empty()) {
-            let placeholders: Vec<String> =
-                branches.iter().map(|_| format!("?{}", param_idx)).collect();
-            sql.push_str(&format!(" AND branch_name IN ({})", placeholders.join(",")));
-            for branch in branches {
-                params.push(libsql::Value::from(branch.to_string()));
-                param_idx += 1;
-            }
-        }
-
-        if let Some(since) = filters.since {
-            sql.push_str(&format!(
-                " AND datetime(timestamp) >= datetime(?{})",
-                param_idx
-            ));
-            params.push(libsql::Value::from(since.to_rfc3339()));
-            param_idx += 1;
-        }
+        append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "");
 
         sql.push_str(&format!(" ORDER BY timestamp DESC LIMIT ?{}", param_idx));
         params.push(libsql::Value::from(limit));
@@ -482,50 +442,7 @@ impl Db {
             let mut params: Vec<libsql::Value> = Vec::new();
             let mut param_idx = 1usize;
 
-            if let Some(t) = filters.tool {
-                sql.push_str(&format!(" AND e.tool = ?{}", param_idx));
-                params.push(libsql::Value::from(t.to_string()));
-                param_idx += 1;
-            }
-
-            if let Some(et) = filters.event_type {
-                sql.push_str(&format!(" AND e.type = ?{}", param_idx));
-                params.push(libsql::Value::from(et.to_string()));
-                param_idx += 1;
-            }
-
-            if let Some(tag) = filters.tag {
-                let escaped = tag
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_");
-                let like_pat = format!("%\"{}\"%", escaped);
-                sql.push_str(&format!(" AND e.tags LIKE ?{} ESCAPE '\\'", param_idx));
-                params.push(libsql::Value::from(like_pat));
-                param_idx += 1;
-            }
-
-            if let Some(branches) = filters.branch_names.as_ref().filter(|b| !b.is_empty()) {
-                let ph: String = branches
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("?{}", param_idx + i))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                sql.push_str(&format!(" AND e.branch_name IN ({})", ph));
-                for branch in branches {
-                    params.push(libsql::Value::from(branch.to_string()));
-                    param_idx += 1;
-                }
-            }
-
-            if let Some(since) = filters.since {
-                sql.push_str(&format!(
-                    " AND datetime(e.timestamp) >= datetime(?{})",
-                    param_idx
-                ));
-                params.push(libsql::Value::from(since.to_rfc3339()));
-            }
+            append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "e");
 
             let mut stmt = self.conn.prepare(&sql).await?;
             let mut rows = stmt.query(libsql::params_from_iter(params)).await?;
@@ -638,5 +555,65 @@ impl Db {
 
         all_results.truncate(limit as usize);
         Ok(all_results)
+    }
+}
+
+fn append_filter_predicates(
+    sql: &mut String,
+    params: &mut Vec<libsql::Value>,
+    param_idx: &mut usize,
+    filters: &SearchFilters<'_>,
+    table_prefix: &str,
+) {
+    let pfx = if table_prefix.is_empty() {
+        "".to_string()
+    } else {
+        format!("{}.", table_prefix)
+    };
+
+    if let Some(t) = filters.tool {
+        sql.push_str(&format!(" AND {}tool = ?{}", pfx, param_idx));
+        params.push(libsql::Value::from(t.to_string()));
+        *param_idx += 1;
+    }
+
+    if let Some(et) = filters.event_type {
+        sql.push_str(&format!(" AND {}type = ?{}", pfx, param_idx));
+        params.push(libsql::Value::from(et.to_string()));
+        *param_idx += 1;
+    }
+
+    if let Some(tag) = filters.tag {
+        let escaped = tag
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let like_pat = format!("%\"{}\"%", escaped);
+        sql.push_str(&format!(" AND {}tags LIKE ?{} ESCAPE '\\'", pfx, param_idx));
+        params.push(libsql::Value::from(like_pat));
+        *param_idx += 1;
+    }
+
+    if let Some(branches) = filters.branch_names.as_ref().filter(|b| !b.is_empty()) {
+        let ph: String = branches
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", *param_idx + i))
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(" AND {}branch_name IN ({})", pfx, ph));
+        for branch in branches {
+            params.push(libsql::Value::from(branch.to_string()));
+            *param_idx += 1;
+        }
+    }
+
+    if let Some(since) = filters.since {
+        sql.push_str(&format!(
+            " AND datetime({}timestamp) >= datetime(?{})",
+            pfx, param_idx
+        ));
+        params.push(libsql::Value::from(since.to_rfc3339()));
+        *param_idx += 1;
     }
 }

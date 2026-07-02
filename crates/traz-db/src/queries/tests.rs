@@ -6,7 +6,7 @@ mod tests {
     use std::sync::Arc;
     use traz_core::Event;
 
-    async fn test_db() -> Db {
+    async fn test_db_with_embeddings(embeddings_enabled: bool) -> Db {
         let db_builder = libsql::Builder::new_local(":memory:")
             .build()
             .await
@@ -18,12 +18,16 @@ mod tests {
             config: traz_core::TrazConfig {
                 db_path: PathBuf::from(":memory:"),
                 api_port: 4000,
-                embeddings_enabled: false,
+                embeddings_enabled,
                 embeddings_model_path: None,
             },
         };
         db.migrate().await.unwrap();
         db
+    }
+
+    async fn test_db() -> Db {
+        test_db_with_embeddings(false).await
     }
 
     fn sample_event(tool: &str, event_type: &str, title: &str) -> Event {
@@ -293,22 +297,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires downloading embedding model"]
     async fn test_context_summary_rag() {
-        let db_builder = libsql::Builder::new_local(":memory:")
-            .build()
-            .await
-            .unwrap();
-        let conn = db_builder.connect().unwrap();
-        let db = Db {
-            conn,
-            path: PathBuf::from(":memory:"),
-            config: traz_core::TrazConfig {
-                db_path: PathBuf::from(":memory:"),
-                api_port: 4000,
-                embeddings_enabled: true, // Needed for semantic search
-                embeddings_model_path: None,
-            },
-        };
-        db.migrate().await.unwrap();
+        let db = test_db_with_embeddings(true).await;
 
         db.insert_event(&sample_event(
             "cursor",
@@ -402,22 +391,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires downloading embedding model"]
     async fn test_semantic_search() {
-        let db_builder = libsql::Builder::new_local(":memory:")
-            .build()
-            .await
-            .unwrap();
-        let conn = db_builder.connect().unwrap();
-        let db = Db {
-            conn,
-            path: PathBuf::from(":memory:"),
-            config: traz_core::TrazConfig {
-                db_path: PathBuf::from(":memory:"),
-                api_port: 4000,
-                embeddings_enabled: true,
-                embeddings_model_path: None,
-            },
-        };
-        db.migrate().await.unwrap();
+        let db = test_db_with_embeddings(true).await;
 
         let e1 = Event::new(
             "t1".into(),
@@ -704,22 +678,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires downloading embedding model"]
     async fn test_hybrid_search_filter_before_truncation() {
-        let db_builder = libsql::Builder::new_local(":memory:")
-            .build()
-            .await
-            .unwrap();
-        let conn = db_builder.connect().unwrap();
-        let db = Db {
-            conn,
-            path: PathBuf::from(":memory:"),
-            config: traz_core::TrazConfig {
-                db_path: PathBuf::from(":memory:"),
-                api_port: 4000,
-                embeddings_enabled: true,
-                embeddings_model_path: None,
-            },
-        };
-        db.migrate().await.unwrap();
+        let db = test_db_with_embeddings(true).await;
 
         // 9 semantically identical high-similarity events on "other"
         for i in 0..9 {
