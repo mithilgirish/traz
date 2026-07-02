@@ -477,7 +477,7 @@ impl Db {
                 "SELECT ee.event_id, ee.vector \
                  FROM event_embeddings ee \
                  INNER JOIN events e ON e.id = ee.event_id \
-                 WHERE 1=1"
+                 WHERE 1=1",
             );
             let mut params: Vec<libsql::Value> = Vec::new();
             let mut param_idx = 1usize;
@@ -525,7 +525,6 @@ impl Db {
                     param_idx
                 ));
                 params.push(libsql::Value::from(since.to_rfc3339()));
-                param_idx += 1;
             }
 
             let mut stmt = self.conn.prepare(&sql).await?;
@@ -608,24 +607,21 @@ impl Db {
         }
 
         // 2. Semantic search (Dense)
-        if self.config.embeddings_enabled {
-            if let Ok(sem_events) = self
-                .semantic_search(query, filters, limit as usize)
-                .await
-            {
-                for (sem_rank, (event, similarity)) in (1..).zip(sem_events) {
-                    if similarity < SEMANTIC_MIN_SIMILARITY {
-                        continue;
-                    }
+        if self.config.embeddings_enabled
+            && let Ok(sem_events) = self.semantic_search(query, filters, limit as usize).await
+        {
+            for (sem_rank, (event, similarity)) in (1..).zip(sem_events) {
+                if similarity < SEMANTIC_MIN_SIMILARITY {
+                    continue;
+                }
 
-                    let rrf_score = 1.0 / (rrf_k + sem_rank as f32);
-                    match results.entry(event.id) {
-                        std::collections::hash_map::Entry::Occupied(mut e) => {
-                            e.get_mut().1 += rrf_score;
-                        }
-                        std::collections::hash_map::Entry::Vacant(e) => {
-                            e.insert((event, rrf_score));
-                        }
+                let rrf_score = 1.0 / (rrf_k + sem_rank as f32);
+                match results.entry(event.id) {
+                    std::collections::hash_map::Entry::Occupied(mut e) => {
+                        e.get_mut().1 += rrf_score;
+                    }
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert((event, rrf_score));
                     }
                 }
             }
