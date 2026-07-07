@@ -13,6 +13,11 @@ pub struct SearchFilters<'a> {
     pub branch_names: Option<Vec<&'a str>>,
 }
 
+/// Minimum cosine similarity required for a semantic match to be included in
+/// hybrid search results. Values below this are considered noise for the
+/// AllMiniLML6V2 model (384-dim). Tune if switching embedding models.
+const SEMANTIC_MIN_SIMILARITY: f32 = 0.35;
+
 impl Db {
     /// Get a single event by its ID.
     pub async fn get_event(&self, id: i64) -> Result<Option<Event>> {
@@ -80,47 +85,7 @@ impl Db {
             params.push(libsql::Value::from(fts_query));
             param_idx += 1;
 
-            if let Some(t) = filters.tool {
-                sql.push_str(&format!(" AND e.tool = ?{}", param_idx));
-                params.push(libsql::Value::from(t.to_string()));
-                param_idx += 1;
-            }
-
-            if let Some(et) = filters.event_type {
-                sql.push_str(&format!(" AND e.type = ?{}", param_idx));
-                params.push(libsql::Value::from(et.to_string()));
-                param_idx += 1;
-            }
-
-            if let Some(tag) = filters.tag {
-                let escaped = tag
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_");
-                let like = format!("%\"{}\"%", escaped);
-                sql.push_str(&format!(" AND e.tags LIKE ?{} ESCAPE '\\'", param_idx));
-                params.push(libsql::Value::from(like));
-                param_idx += 1;
-            }
-
-            if let Some(branches) = filters.branch_names.as_ref().filter(|b| !b.is_empty()) {
-                let placeholders: Vec<String> =
-                    branches.iter().map(|_| format!("?{}", param_idx)).collect();
-                sql.push_str(&format!(" AND e.branch_name IN ({})", placeholders.join(",")));
-                for branch in branches {
-                    params.push(libsql::Value::from(branch.to_string()));
-                    param_idx += 1;
-                }
-            }
-
-            if let Some(since) = filters.since {
-                sql.push_str(&format!(
-                    " AND datetime(e.timestamp) >= datetime(?{})",
-                    param_idx
-                ));
-                params.push(libsql::Value::from(since.to_rfc3339()));
-                param_idx += 1;
-            }
+            append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "e");
 
             sql.push_str(&format!(" ORDER BY fts.rank ASC, e.timestamp DESC LIMIT ?{}", param_idx));
             params.push(libsql::Value::from(limit));
@@ -131,47 +96,7 @@ impl Db {
                  WHERE 1=1"
             );
 
-            if let Some(t) = filters.tool {
-                sql.push_str(&format!(" AND tool = ?{}", param_idx));
-                params.push(libsql::Value::from(t.to_string()));
-                param_idx += 1;
-            }
-
-            if let Some(et) = filters.event_type {
-                sql.push_str(&format!(" AND type = ?{}", param_idx));
-                params.push(libsql::Value::from(et.to_string()));
-                param_idx += 1;
-            }
-
-            if let Some(tag) = filters.tag {
-                let escaped = tag
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_");
-                let like = format!("%\"{}\"%", escaped);
-                sql.push_str(&format!(" AND tags LIKE ?{} ESCAPE '\\'", param_idx));
-                params.push(libsql::Value::from(like));
-                param_idx += 1;
-            }
-
-            if let Some(branches) = filters.branch_names.as_ref().filter(|b| !b.is_empty()) {
-                let placeholders: Vec<String> =
-                    branches.iter().map(|_| format!("?{}", param_idx)).collect();
-                sql.push_str(&format!(" AND branch_name IN ({})", placeholders.join(",")));
-                for branch in branches {
-                    params.push(libsql::Value::from(branch.to_string()));
-                    param_idx += 1;
-                }
-            }
-
-            if let Some(since) = filters.since {
-                sql.push_str(&format!(
-                    " AND datetime(timestamp) >= datetime(?{})",
-                    param_idx
-                ));
-                params.push(libsql::Value::from(since.to_rfc3339()));
-                param_idx += 1;
-            }
+            append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "");
 
             sql.push_str(&format!(" ORDER BY timestamp DESC LIMIT ?{}", param_idx));
             params.push(libsql::Value::from(limit));
@@ -474,8 +399,8 @@ impl Db {
     pub async fn semantic_search(
         &self,
         query: &str,
+        filters: &SearchFilters<'_>,
         limit: usize,
-        branch_names: Option<&[&str]>,
     ) -> Result<Vec<(Event, f32)>> {
         // TODO v0.2: use sqlite-vec extension for ANN search
 
@@ -503,26 +428,16 @@ impl Db {
 
         let mut top_matches = Vec::new();
         {
-            let (sql, params) = if let Some(branches) = branch_names {
-                let placeholders: Vec<String> = branches.iter().map(|_| "?".to_string()).collect();
-                let sql = format!(
-                    "SELECT ee.event_id, ee.vector FROM event_embeddings ee 
-                     JOIN events e ON e.id = ee.event_id 
-                     WHERE e.branch_name IN ({}) ",
-                    placeholders.join(",")
-                );
+            let mut sql = String::from(
+                "SELECT ee.event_id, ee.vector \
+                 FROM event_embeddings ee \
+                 INNER JOIN events e ON e.id = ee.event_id \
+                 WHERE 1=1",
+            );
+            let mut params: Vec<libsql::Value> = Vec::new();
+            let mut param_idx = 1usize;
 
-                let mut p = Vec::new();
-                for b in branches {
-                    p.push(libsql::Value::from(b.to_string()));
-                }
-                (sql, p)
-            } else {
-                (
-                    "SELECT event_id, vector FROM event_embeddings".to_string(),
-                    Vec::new(),
-                )
-            };
+            append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "e");
 
             let mut stmt = self.conn.prepare(&sql).await?;
             let mut rows = stmt.query(libsql::params_from_iter(params)).await?;
@@ -605,60 +520,25 @@ impl Db {
         }
 
         // 2. Semantic search (Dense)
-        if self.config.embeddings_enabled {
-            // Fetch more candidates since we might filter some out
-            let branch_filter = filters.branch_names.as_deref();
-            if let Ok(sem_events) = self
-                .semantic_search(query, fetch_limit as usize, branch_filter)
-                .await
-            {
-                let mut rank = 1;
-                for (event, similarity) in sem_events {
-                    if similarity < 0.3 {
-                        continue;
-                    }
-
-                    if let Some(t) = filters.tool
-                        && !event.tool.eq_ignore_ascii_case(t)
-                    {
-                        continue;
-                    }
-                    if let Some(et) = filters.event_type
-                        && !event.event_type.eq_ignore_ascii_case(et)
-                    {
-                        continue;
-                    }
-                    if let Some(tag) = filters.tag {
-                        if let Some(tags) = &event.tags {
-                            if !tags.iter().any(|t_str| t_str.eq_ignore_ascii_case(tag)) {
-                                continue;
-                            }
-                        } else {
-                            continue;
-                        }
-                    }
-                    if let Some(since) = filters.since
-                        && event.timestamp < since
-                    {
-                        continue;
-                    }
-                    if let Some(ref branches) = filters.branch_names {
-                        let event_branch = event.branch_name.as_deref().unwrap_or("");
-                        if !branches.contains(&event_branch) {
-                            continue;
-                        }
-                    }
-
-                    let rrf_score = 1.0 / (rrf_k + rank as f32);
-                    if let std::collections::hash_map::Entry::Occupied(mut entry) =
-                        results.entry(event.id)
-                    {
-                        entry.get_mut().1 += rrf_score;
-                    } else {
-                        results.insert(event.id, (event, rrf_score));
-                    }
-                    rank += 1;
+        if self.config.embeddings_enabled
+            && let Ok(sem_events) = self.semantic_search(query, filters, fetch_limit as usize).await
+        {
+            let mut sem_rank = 1;
+            for (event, similarity) in sem_events {
+                if similarity < SEMANTIC_MIN_SIMILARITY {
+                    continue;
                 }
+
+                let rrf_score = 1.0 / (rrf_k + sem_rank as f32);
+                match results.entry(event.id) {
+                    std::collections::hash_map::Entry::Occupied(mut e) => {
+                        e.get_mut().1 += rrf_score;
+                    }
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert((event, rrf_score));
+                    }
+                }
+                sem_rank += 1;
             }
         }
 
@@ -692,4 +572,64 @@ fn sanitize_fts5_query(query: &str) -> String {
         }
     }
     fts_query
+}
+
+fn append_filter_predicates(
+    sql: &mut String,
+    params: &mut Vec<libsql::Value>,
+    param_idx: &mut usize,
+    filters: &SearchFilters<'_>,
+    table_prefix: &str,
+) {
+    let pfx = if table_prefix.is_empty() {
+        "".to_string()
+    } else {
+        format!("{}.", table_prefix)
+    };
+
+    if let Some(t) = filters.tool {
+        sql.push_str(&format!(" AND {}tool = ?{}", pfx, param_idx));
+        params.push(libsql::Value::from(t.to_string()));
+        *param_idx += 1;
+    }
+
+    if let Some(et) = filters.event_type {
+        sql.push_str(&format!(" AND {}type = ?{}", pfx, param_idx));
+        params.push(libsql::Value::from(et.to_string()));
+        *param_idx += 1;
+    }
+
+    if let Some(tag) = filters.tag {
+        let escaped = tag
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let like_pat = format!("%\"{}\"%", escaped);
+        sql.push_str(&format!(" AND {}tags LIKE ?{} ESCAPE '\\'", pfx, param_idx));
+        params.push(libsql::Value::from(like_pat));
+        *param_idx += 1;
+    }
+
+    if let Some(branches) = filters.branch_names.as_ref().filter(|b| !b.is_empty()) {
+        let ph: String = branches
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", *param_idx + i))
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(" AND {}branch_name IN ({})", pfx, ph));
+        for branch in branches {
+            params.push(libsql::Value::from(branch.to_string()));
+            *param_idx += 1;
+        }
+    }
+
+    if let Some(since) = filters.since {
+        sql.push_str(&format!(
+            " AND datetime({}timestamp) >= datetime(?{})",
+            pfx, param_idx
+        ));
+        params.push(libsql::Value::from(since.to_rfc3339()));
+        *param_idx += 1;
+    }
 }

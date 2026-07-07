@@ -21,7 +21,7 @@ async fn test_semantic_search_snapshot() {
     db.insert_event(&e1).await.unwrap();
 
     let results = db
-        .semantic_search("login", 1, None)
+        .semantic_search("login", &Default::default(), 1)
         .await
         .expect("Semantic search failed");
     assert!(
