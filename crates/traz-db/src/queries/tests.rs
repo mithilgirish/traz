@@ -690,7 +690,11 @@ mod tests {
 
         // "Search" should match "Searching" (stemmed variant)
         let results = db
-            .search_events("search", &crate::queries::read::SearchFilters::default(), 10)
+            .search_events(
+                "search",
+                &crate::queries::read::SearchFilters::default(),
+                10,
+            )
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
