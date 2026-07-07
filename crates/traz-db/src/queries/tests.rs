@@ -676,6 +676,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_search_stemming() {
+        let db = test_db().await;
+        let e1 = Event::new(
+            "t1".into(),
+            "f1".into(),
+            "Searching for items".into(),
+            Some("He was coding yesterday".into()),
+            None,
+            None,
+        );
+        db.insert_event(&e1).await.unwrap();
+
+        // "Search" should match "Searching" (stemmed variant)
+        let results = db
+            .search_events(
+                "search",
+                &crate::queries::read::SearchFilters::default(),
+                10,
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Searching for items");
+
+        // "codes" should match "coding" (stemmed variant)
+        let results2 = db
+            .search_events("code", &crate::queries::read::SearchFilters::default(), 10)
+            .await
+            .unwrap();
+        assert_eq!(results2.len(), 1);
+        assert_eq!(results2[0].title, "Searching for items");
+    }
+
+    #[tokio::test]
     #[ignore = "Requires downloading embedding model"]
     async fn test_hybrid_search_filter_before_truncation() {
         let db = test_db_with_embeddings(true).await;

@@ -61,7 +61,7 @@ impl Db {
         collect_events(rows).await
     }
 
-    /// Full-text-ish search with LIKE wildcard escaping, optional tool filter.
+    /// Full-text search using FTS5 virtual table and relevance ranking, with fallback to standard query if search query is empty.
     pub async fn search_events(
         &self,
         query: &str,
@@ -69,43 +69,41 @@ impl Db {
         limit: u32,
     ) -> Result<Vec<Event>> {
         let limit = limit.min(MAX_RESULTS);
-        let terms: Vec<&str> = query.split_whitespace().collect();
+        let fts_query = sanitize_fts5_query(query);
 
-        let mut sql = String::from(
-            "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at
-             FROM events
-             WHERE 1=1"
-        );
-
+        let mut sql;
         let mut params: Vec<libsql::Value> = Vec::new();
         let mut param_idx = 1;
 
-        if !terms.is_empty() {
-            for term in terms {
-                let escaped = term
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_");
-                let like = format!("%{}%", escaped);
+        if !fts_query.is_empty() {
+            sql = String::from(
+                "SELECT e.id, e.uuid, e.tool, e.type, e.title, e.summary, e.files, e.metadata, e.tags, e.session_id, e.diff, e.branch_name, e.parent_event_id, e.is_checkpoint, e.agent_id, e.timestamp, e.created_at
+                 FROM events e
+                 JOIN events_fts ON e.id = events_fts.rowid
+                 WHERE events_fts MATCH ?1"
+            );
+            params.push(libsql::Value::from(fts_query));
+            param_idx += 1;
 
-                sql.push_str(&format!(
-                    " AND (title LIKE ?{idx} ESCAPE '\\'
-                       OR summary LIKE ?{idx} ESCAPE '\\'
-                       OR type LIKE ?{idx} ESCAPE '\\'
-                       OR tool LIKE ?{idx} ESCAPE '\\'
-                       OR files LIKE ?{idx} ESCAPE '\\'
-                       OR tags LIKE ?{idx} ESCAPE '\\')",
-                    idx = param_idx
-                ));
-                params.push(libsql::Value::from(like));
-                param_idx += 1;
-            }
+            append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "e");
+
+            sql.push_str(&format!(
+                " ORDER BY events_fts.rank ASC, e.timestamp DESC LIMIT ?{}",
+                param_idx
+            ));
+            params.push(libsql::Value::from(limit));
+        } else {
+            sql = String::from(
+                "SELECT id, uuid, tool, type, title, summary, files, metadata, tags, session_id, diff, branch_name, parent_event_id, is_checkpoint, agent_id, timestamp, created_at
+                 FROM events
+                 WHERE 1=1"
+            );
+
+            append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "");
+
+            sql.push_str(&format!(" ORDER BY timestamp DESC LIMIT ?{}", param_idx));
+            params.push(libsql::Value::from(limit));
         }
-
-        append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "");
-
-        sql.push_str(&format!(" ORDER BY timestamp DESC LIMIT ?{}", param_idx));
-        params.push(libsql::Value::from(limit));
 
         let mut stmt = self.conn.prepare(&sql).await?;
         let rows = stmt.query(params).await?;
@@ -515,9 +513,10 @@ impl Db {
     ) -> Result<Vec<(Event, f32)>> {
         let mut results = std::collections::HashMap::new();
         let rrf_k = 60.0;
+        let fetch_limit = (limit * 3).max(100);
 
         // 1. Keyword search (Sparse)
-        let keyword_events = self.search_events(query, filters, limit).await?;
+        let keyword_events = self.search_events(query, filters, fetch_limit).await?;
         for (rank, event) in (1..).zip(keyword_events) {
             let rrf_score = 1.0 / (rrf_k + rank as f32);
             results.insert(event.id, (event, rrf_score));
@@ -525,9 +524,12 @@ impl Db {
 
         // 2. Semantic search (Dense)
         if self.config.embeddings_enabled
-            && let Ok(sem_events) = self.semantic_search(query, filters, limit as usize).await
+            && let Ok(sem_events) = self
+                .semantic_search(query, filters, fetch_limit as usize)
+                .await
         {
-            for (sem_rank, (event, similarity)) in (1..).zip(sem_events) {
+            let mut sem_rank = 1;
+            for (event, similarity) in sem_events {
                 if similarity < SEMANTIC_MIN_SIMILARITY {
                     continue;
                 }
@@ -541,6 +543,7 @@ impl Db {
                         e.insert((event, rrf_score));
                     }
                 }
+                sem_rank += 1;
             }
         }
 
@@ -556,6 +559,31 @@ impl Db {
         all_results.truncate(limit as usize);
         Ok(all_results)
     }
+}
+
+fn sanitize_fts5_query(query: &str) -> String {
+    let mut fts_query = String::new();
+    for word in query.split_whitespace() {
+        // Keep alphanumeric, underscore, hyphen, dot, backslash, slash
+        let cleaned: String = word
+            .chars()
+            .filter(|c| {
+                c.is_alphanumeric()
+                    || *c == '_'
+                    || *c == '-'
+                    || *c == '/'
+                    || *c == '\\'
+                    || *c == '.'
+            })
+            .collect();
+        if !cleaned.is_empty() {
+            if !fts_query.is_empty() {
+                fts_query.push_str(" AND ");
+            }
+            fts_query.push_str(&format!("\"{}\"*", cleaned));
+        }
+    }
+    fts_query
 }
 
 fn append_filter_predicates(

@@ -174,6 +174,59 @@ impl Db {
             )
             .await?;
 
+        // Step 5: Create FTS5 virtual table and triggers for event search
+        // Check if the FTS table already exists to avoid expensive initialization on every startup.
+        let mut fts_exists = false;
+        if let Ok(mut rows) = self
+            .conn
+            .query(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='events_fts'",
+                (),
+            )
+            .await
+        {
+            fts_exists = matches!(rows.next().await, Ok(Some(_)));
+        }
+
+        if !fts_exists {
+            self.conn
+                .execute_batch(
+                    "CREATE VIRTUAL TABLE events_fts USING fts5(
+                        title,
+                        summary,
+                        type,
+                        tool,
+                        files,
+                        tags,
+                        content='events',
+                        content_rowid='id',
+                        tokenize='porter unicode61'
+                     );
+
+                     CREATE TRIGGER events_ai AFTER INSERT ON events BEGIN
+                         INSERT INTO events_fts(rowid, title, summary, type, tool, files, tags)
+                         VALUES (new.id, new.title, new.summary, new.type, new.tool, new.files, new.tags);
+                     END;
+
+                     CREATE TRIGGER events_ad AFTER DELETE ON events BEGIN
+                         INSERT INTO events_fts(events_fts, rowid, title, summary, type, tool, files, tags)
+                         VALUES ('delete', old.id, old.title, old.summary, old.type, old.tool, old.files, old.tags);
+                     END;
+
+                     CREATE TRIGGER events_au AFTER UPDATE ON events BEGIN
+                         INSERT INTO events_fts(events_fts, rowid, title, summary, type, tool, files, tags)
+                         VALUES ('delete', old.id, old.title, old.summary, old.type, old.tool, old.files, old.tags);
+                         INSERT INTO events_fts(rowid, title, summary, type, tool, files, tags)
+                         VALUES (new.id, new.title, new.summary, new.type, new.tool, new.files, new.tags);
+                     END;
+
+                     -- Rebuild the entire FTS index from the external content table.
+                     -- This runs once upon table creation.
+                     INSERT INTO events_fts(events_fts) VALUES('rebuild');"
+                )
+                .await?;
+        }
+
         Ok(())
     }
 
