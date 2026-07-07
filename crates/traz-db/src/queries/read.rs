@@ -79,8 +79,8 @@ impl Db {
             sql = String::from(
                 "SELECT e.id, e.uuid, e.tool, e.type, e.title, e.summary, e.files, e.metadata, e.tags, e.session_id, e.diff, e.branch_name, e.parent_event_id, e.is_checkpoint, e.agent_id, e.timestamp, e.created_at
                  FROM events e
-                 JOIN events_fts fts ON e.id = fts.rowid
-                 WHERE fts MATCH ?1"
+                 JOIN events_fts ON e.id = events_fts.rowid
+                 WHERE events_fts MATCH ?1"
             );
             params.push(libsql::Value::from(fts_query));
             param_idx += 1;
@@ -88,7 +88,7 @@ impl Db {
             append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "e");
 
             sql.push_str(&format!(
-                " ORDER BY fts.rank ASC, e.timestamp DESC LIMIT ?{}",
+                " ORDER BY events_fts.rank ASC, e.timestamp DESC LIMIT ?{}",
                 param_idx
             ));
             params.push(libsql::Value::from(limit));
