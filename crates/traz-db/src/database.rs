@@ -200,7 +200,7 @@ impl Db {
                         tags,
                         content='events',
                         content_rowid='id',
-                        tokenize='unicode61 porter'
+                        tokenize='porter unicode61'
                      );
 
                      CREATE TRIGGER events_ai AFTER INSERT ON events BEGIN
