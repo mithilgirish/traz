@@ -690,11 +690,7 @@ mod tests {
 
         // "Search" should match "Searching" (stemmed variant)
         let results = db
-            .search_events(
-                "search",
-                &crate::queries::read::SearchFilters::default(),
-                10,
-            )
+            .search_events("search", &crate::queries::read::SearchFilters::default(), 10)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -702,11 +698,7 @@ mod tests {
 
         // "codes" should match "coding" (stemmed variant)
         let results2 = db
-            .search_events(
-                "code",
-                &crate::queries::read::SearchFilters::default(),
-                10,
-            )
+            .search_events("code", &crate::queries::read::SearchFilters::default(), 10)
             .await
             .unwrap();
         assert_eq!(results2.len(), 1);
@@ -764,4 +756,3 @@ mod tests {
         assert_eq!(results[0].0.id, Some(target_id));
     }
 }
-
