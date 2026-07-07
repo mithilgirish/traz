@@ -177,10 +177,15 @@ impl Db {
         // Step 5: Create FTS5 virtual table and triggers for event search
         // Check if the FTS table already exists to avoid expensive initialization on every startup.
         let mut fts_exists = false;
-        if let Ok(mut rows) = self.conn.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events_fts'", ()).await {
-            if let Ok(Some(_)) = rows.next().await {
-                fts_exists = true;
-            }
+        if let Ok(mut rows) = self
+            .conn
+            .query(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='events_fts'",
+                (),
+            )
+            .await
+        {
+            fts_exists = matches!(rows.next().await, Ok(Some(_)));
         }
 
         if !fts_exists {

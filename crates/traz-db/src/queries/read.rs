@@ -87,7 +87,10 @@ impl Db {
 
             append_filter_predicates(&mut sql, &mut params, &mut param_idx, filters, "e");
 
-            sql.push_str(&format!(" ORDER BY fts.rank ASC, e.timestamp DESC LIMIT ?{}", param_idx));
+            sql.push_str(&format!(
+                " ORDER BY fts.rank ASC, e.timestamp DESC LIMIT ?{}",
+                param_idx
+            ));
             params.push(libsql::Value::from(limit));
         } else {
             sql = String::from(
@@ -521,7 +524,9 @@ impl Db {
 
         // 2. Semantic search (Dense)
         if self.config.embeddings_enabled
-            && let Ok(sem_events) = self.semantic_search(query, filters, fetch_limit as usize).await
+            && let Ok(sem_events) = self
+                .semantic_search(query, filters, fetch_limit as usize)
+                .await
         {
             let mut sem_rank = 1;
             for (event, similarity) in sem_events {
@@ -562,7 +567,14 @@ fn sanitize_fts5_query(query: &str) -> String {
         // Keep alphanumeric, underscore, hyphen, dot, backslash, slash
         let cleaned: String = word
             .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '/' || *c == '\\' || *c == '.')
+            .filter(|c| {
+                c.is_alphanumeric()
+                    || *c == '_'
+                    || *c == '-'
+                    || *c == '/'
+                    || *c == '\\'
+                    || *c == '.'
+            })
             .collect();
         if !cleaned.is_empty() {
             if !fts_query.is_empty() {
